@@ -38,6 +38,7 @@ class AIClient:
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
+        self.extra_params = config.get("EXTRA_PARAMS", {}) or {}
 
     def chat(
         self,
@@ -83,9 +84,17 @@ class AIClient:
         if self.fallback_models:
             params["fallbacks"] = self.fallback_models
 
+        # 允许通过 config.yaml 传递供应商支持的标准扩展参数（例如 top_p）。
+        if isinstance(self.extra_params, dict):
+            for key, value in self.extra_params.items():
+                if key not in params:
+                    params[key] = value
+
         # 合并其他额外参数
         for key, value in kwargs.items():
-            if key not in params:
+            if key in {"temperature", "timeout", "num_retries", "max_tokens"}:
+                continue
+            if key not in params or key in self.extra_params:
                 params[key] = value
 
         # 调用 LiteLLM

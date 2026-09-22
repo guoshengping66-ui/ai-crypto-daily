@@ -397,7 +397,7 @@ ai:
 
   timeout: 120                      # 请求超时（秒）
 
-  temperature: 0.4                  # 采样温度 (0.0-2.0)
+  temperature: 1.0                  # Xing4.0 官方建议的一般任务采样温度
                                     # 注意：部分模型(如 gpt-5)可能要求必须为 1.0，否则会报错
   
   max_tokens: 6000                  # 每日十条选题及草稿的最大输出量
@@ -408,8 +408,8 @@ ai:
                                     # 示例: ["openai/gpt-4o-mini", "openai/deepseek-ai/DeepSeek-V3"]
 
   # 额外参数（一般无需修改，删掉 # 号即可启用）
-  # extra_params:
-  #   top_p: 1.0
+  extra_params:
+    top_p: 0.95                     # Xing4.0 官方建议值；AIClient 会传递给兼容接口
   #   presence_penalty: 0.0
   #   stop: ["END"]
 

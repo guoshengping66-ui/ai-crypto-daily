@@ -1,6 +1,9 @@
 import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
+from trendradar.ai.client import AIClient
 from trendradar.ai.analyzer import AIAnalyzer
 
 
@@ -83,6 +86,26 @@ class AIAnalyzerResponseTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("币圈选题", result.error)
+
+
+class AIClientParameterTests(unittest.TestCase):
+    @patch("trendradar.ai.client.completion")
+    def test_passes_configured_provider_parameters(self, completion):
+        completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+        )
+        client = AIClient(
+            {
+                "MODEL": "openai/example/model",
+                "API_KEY": "test-key",
+                "TEMPERATURE": 1.0,
+                "EXTRA_PARAMS": {"top_p": 0.95},
+            }
+        )
+
+        self.assertEqual(client.chat([{"role": "user", "content": "test"}]), "ok")
+        self.assertEqual(completion.call_args.kwargs["top_p"], 0.95)
+        self.assertEqual(completion.call_args.kwargs["temperature"], 1.0)
 
 
 if __name__ == "__main__":
