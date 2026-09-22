@@ -1,5 +1,7 @@
 import json
+import io
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -106,6 +108,47 @@ class AIClientParameterTests(unittest.TestCase):
         self.assertEqual(client.chat([{"role": "user", "content": "test"}]), "ok")
         self.assertEqual(completion.call_args.kwargs["top_p"], 0.95)
         self.assertEqual(completion.call_args.kwargs["temperature"], 1.0)
+
+    @patch("trendradar.ai.client.completion")
+    def test_extracts_only_final_suffix_from_reasoning_field(self, completion):
+        completion.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="repetition",
+                    message=SimpleNamespace(
+                        content="",
+                        reasoning_content="hidden reasoning</think>{\"result\":\"daily topics\"}",
+                    ),
+                )
+            ]
+        )
+        client = AIClient({"MODEL": "openai/example/model"})
+
+        answer = client.chat([{"role": "user", "content": "test"}])
+
+        self.assertEqual(answer, '{"result":"daily topics"}')
+
+    @patch("trendradar.ai.client.completion")
+    def test_never_returns_reasoning_without_final_separator(self, completion):
+        completion.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="repetition",
+                    message=SimpleNamespace(
+                        content=None,
+                        reasoning_content="private reasoning, no final answer",
+                    ),
+                )
+            ]
+        )
+        client = AIClient({"MODEL": "openai/example/model"})
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            answer = client.chat([{"role": "user", "content": "test"}])
+
+        self.assertEqual(answer, "")
+        self.assertNotIn("private reasoning", output.getvalue())
 
 
 if __name__ == "__main__":

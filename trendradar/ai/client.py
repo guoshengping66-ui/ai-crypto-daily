@@ -100,9 +100,29 @@ class AIClient:
         # 调用 LiteLLM
         response = completion(**params)
 
-        # 提取响应内容
+        # 提取响应内容。部分推理模型/兼容端点会把最终答复放在
+        # reasoning_content 中；仅在存在明确的 </think> 分界符时提取其后正文，
+        # 不把思考过程转发给用户。
+        choice = response.choices[0]
+        message = choice.message
+        content = message.content
+        if not content:
+            reasoning_content = getattr(message, "reasoning_content", None)
+            if isinstance(reasoning_content, str) and "</think>" in reasoning_content:
+                final_answer = reasoning_content.rsplit("</think>", 1)[1].strip()
+                if final_answer:
+                    content = final_answer
+                    print("[AI] 已从 reasoning_content 的 </think> 后提取最终答复")
+
+        if not content:
+            finish_reason = getattr(choice, "finish_reason", "unknown")
+            reasoning_size = len(str(getattr(message, "reasoning_content", "") or ""))
+            print(
+                "[AI] 模型未返回最终正文："
+                f"finish_reason={finish_reason}, reasoning_chars={reasoning_size}"
+            )
+
         # 某些模型/提供商返回 list（内容块）而非 str，统一转为 str
-        content = response.choices[0].message.content
         if isinstance(content, list):
             content = "\n".join(
                 item.get("text", str(item)) if isinstance(item, dict) else str(item)
