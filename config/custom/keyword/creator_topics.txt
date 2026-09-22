@@ -1,0 +1,10 @@
+# 每日 AI 与币圈创作者选题：只按标题做宽松候选过滤，最终质量由 AI 分析阶段决定。
+# 分组顺序代表优先级；同一标题只归入第一个命中的分组。
+
+[币圈热点]
+/\bcrypto\b|\bbitcoin\b|\bBTC\b|\bEthereum\b|\bETH\b|\bSolana\b|\bSOL\b|加密货币|加密资产|数字资产|比特币|以太坊|稳定币|代币|区块链|Web3|DeFi|NFT|交易所|链上|空投|质押|ETF|钱包|公链|协议|代币化|RWA|监管|挖矿|黑客攻击|漏洞|清算|矿工/
+@70
+
+[AI热点]
+/\bAI\b|\bLLM\b|\bAGI\b|\bOpenAI\b|\bChatGPT\b|\bClaude\b|\bGemini\b|\bDeepMind\b|\bDeepSeek\b|\bQwen\b|\bKimi\b|\bHugging Face\b|\bNVIDIA\b|artificial intelligence|machine learning|人工智能|生成式|大模型|智能体|多模态|推理模型|开源模型|模型发布|AI芯片|算力|机器人|具身智能|AI安全|AI研究|论文/
+@70
