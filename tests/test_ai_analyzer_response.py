@@ -167,12 +167,18 @@ class AIClientParameterTests(unittest.TestCase):
                 "MODEL": "openai/example/model",
                 "API_KEY": "test-key",
                 "TEMPERATURE": 1.0,
-                "EXTRA_PARAMS": {"top_p": 0.95},
+                "EXTRA_PARAMS": {
+                    "top_p": 0.95,
+                    "extra_body": {"enable_thinking": False},
+                },
             }
         )
 
         self.assertEqual(client.chat([{"role": "user", "content": "test"}]), "ok")
         self.assertEqual(completion.call_args.kwargs["top_p"], 0.95)
+        self.assertEqual(
+            completion.call_args.kwargs["extra_body"], {"enable_thinking": False}
+        )
         self.assertEqual(completion.call_args.kwargs["temperature"], 1.0)
 
     @patch("trendradar.ai.client.completion")
@@ -215,6 +221,7 @@ class AIClientParameterTests(unittest.TestCase):
 
         self.assertEqual(answer, "")
         self.assertNotIn("private reasoning", output.getvalue())
+        self.assertIn("final_separator=False", output.getvalue())
 
     @patch("trendradar.ai.client.completion")
     def test_strips_thinking_prefix_from_content(self, completion):

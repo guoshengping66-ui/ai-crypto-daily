@@ -116,10 +116,17 @@ class AIClient:
 
         if not content:
             finish_reason = getattr(choice, "finish_reason", "unknown")
-            reasoning_size = len(str(getattr(message, "reasoning_content", "") or ""))
+            reasoning_text = str(getattr(message, "reasoning_content", "") or "")
+            has_final_separator = "</think>" in reasoning_text
+            final_suffix_size = (
+                len(reasoning_text.rsplit("</think>", 1)[1].strip())
+                if has_final_separator
+                else 0
+            )
             print(
                 "[AI] 模型未返回最终正文："
-                f"finish_reason={finish_reason}, reasoning_chars={reasoning_size}"
+                f"finish_reason={finish_reason}, reasoning_chars={len(reasoning_text)}, "
+                f"final_separator={has_final_separator}, final_suffix_chars={final_suffix_size}"
             )
 
         # 某些模型/提供商返回 list（内容块）而非 str，统一转为 str

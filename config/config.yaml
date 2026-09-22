@@ -410,6 +410,8 @@ ai:
   # 额外参数（一般无需修改，删掉 # 号即可启用）
   extra_params:
     top_p: 0.95                     # Xing4.0 官方建议值；AIClient 会传递给兼容接口
+    extra_body:
+      enable_thinking: false        # 日报是选题整理任务，关闭推理模式以确保返回可用正文
   #   presence_penalty: 0.0
   #   stop: ["END"]
 
