@@ -150,6 +150,24 @@ class AIClientParameterTests(unittest.TestCase):
         self.assertEqual(answer, "")
         self.assertNotIn("private reasoning", output.getvalue())
 
+    @patch("trendradar.ai.client.completion")
+    def test_strips_thinking_prefix_from_content(self, completion):
+        completion.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        content="<think>private reasoning</think>{\"report\":\"ready\"}"
+                    ),
+                )
+            ]
+        )
+        client = AIClient({"MODEL": "openai/example/model"})
+
+        answer = client.chat([{"role": "user", "content": "test"}])
+
+        self.assertEqual(answer, '{"report":"ready"}')
+
 
 if __name__ == "__main__":
     unittest.main()

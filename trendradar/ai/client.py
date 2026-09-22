@@ -128,6 +128,9 @@ class AIClient:
                 item.get("text", str(item)) if isinstance(item, dict) else str(item)
                 for item in content
             )
+        if isinstance(content, str) and "</think>" in content:
+            content = content.rsplit("</think>", 1)[1].strip()
+            print("[AI] 已过滤思考标签，只保留 </think> 后的最终答复")
         return content or ""
 
     def validate_config(self) -> tuple[bool, str]:
