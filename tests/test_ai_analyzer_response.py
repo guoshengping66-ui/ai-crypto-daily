@@ -155,6 +155,21 @@ AI 选题（1/5）
         self.assertIn("AI 事件", result.core_trends)
         self.assertIn("币圈事件", result.sentiment_controversy)
 
+    def test_accepts_chinese_numbered_section_headings(self):
+        self.analyzer.analysis_config = {
+            "PROMPT_FILE": "config/creator_daily_prompt.txt"
+        }
+        result = self.analyzer._parse_response(
+            """第一部分：人工智能相关热点
+1. 模型更新
+第二部分：加密行业热点
+1. 协议更新"""
+        )
+
+        self.assertTrue(result.success)
+        self.assertIn("模型更新", result.core_trends)
+        self.assertIn("协议更新", result.sentiment_controversy)
+
 
 class AIClientParameterTests(unittest.TestCase):
     @patch("trendradar.ai.client.completion")
