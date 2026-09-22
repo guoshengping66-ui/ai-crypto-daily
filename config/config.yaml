@@ -279,6 +279,9 @@ notification:
       webhook_url: ""                 # 企业微信机器人 webhook URL
       msg_type: "text"                # 个人微信应用通道使用纯文本
 
+    wxpusher:
+      spt: ""                          # WxPusher SPT；建议通过 WXPUSHER_SPT 环境变量配置
+
     telegram:
       bot_token: ""                   # Telegram Bot Token
       chat_id: ""                     # Telegram Chat ID

@@ -74,6 +74,7 @@ def run_test_notification(config: Dict) -> bool:
                 config.get("FEISHU_WEBHOOK_URL"),
                 config.get("DINGTALK_WEBHOOK_URL"),
                 config.get("WEWORK_WEBHOOK_URL"),
+                config.get("WXPUSHER_SPT"),
                 (config.get("TELEGRAM_BOT_TOKEN") and config.get("TELEGRAM_CHAT_ID")),
                 (config.get("EMAIL_FROM") and config.get("EMAIL_PASSWORD") and config.get("EMAIL_TO")),
                 (config.get("NTFY_SERVER_URL") and config.get("NTFY_TOPIC")),

@@ -163,6 +163,7 @@ class NewsAnalyzer:
                 cfg["FEISHU_WEBHOOK_URL"],
                 cfg["DINGTALK_WEBHOOK_URL"],
                 cfg["WEWORK_WEBHOOK_URL"],
+                cfg["WXPUSHER_SPT"],
                 (cfg["TELEGRAM_BOT_TOKEN"] and cfg["TELEGRAM_CHAT_ID"]),
                 (
                     cfg["EMAIL_FROM"]

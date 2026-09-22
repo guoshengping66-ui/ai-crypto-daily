@@ -1325,3 +1325,75 @@ def send_to_generic_webhook(
     print(f"{log_prefix}所有 {len(batches)} 批次发送完成 [{report_type}]")
 
     return True
+
+
+def send_to_wxpusher(
+    spt: str,
+    report_data: Dict,
+    report_type: str,
+    update_info: Optional[Dict] = None,
+    proxy_url: Optional[str] = None,
+    mode: str = "daily",
+    *,
+    batch_size: int = 3800,
+    batch_interval: float = 1.0,
+    split_content_func: Optional[Callable] = None,
+    rss_items: Optional[list] = None,
+    rss_new_items: Optional[list] = None,
+    ai_analysis: Any = None,
+    display_regions: Optional[Dict] = None,
+    standalone_data: Optional[Dict] = None,
+) -> bool:
+    """通过 WxPusher SPT 极简推送发送 Markdown 报告。"""
+    if not spt:
+        print("WxPusher SPT 未配置，跳过推送")
+        return False
+    if split_content_func is None:
+        raise ValueError("split_content_func is required")
+
+    ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
+    ai_stats = _extract_ai_stats(ai_analysis)
+    batches = split_content_func(
+        report_data,
+        "wework",
+        update_info,
+        max_bytes=batch_size - get_max_batch_header_size("wework"),
+        mode=mode,
+        rss_items=rss_items,
+        rss_new_items=rss_new_items,
+        ai_content=ai_content,
+        standalone_data=standalone_data,
+        ai_stats=ai_stats,
+        report_type=report_type,
+    )
+    batches = add_batch_headers(batches, "wework", batch_size)
+
+    endpoint = "https://wxpusher.zjiecode.com/api/send/message/simple-push"
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    print(f"WxPusher 消息分为 {len(batches)} 批次发送 [{report_type}]")
+
+    for index, content in enumerate(batches, 1):
+        payload = {
+            "spt": spt,
+            "content": content,
+            "summary": report_type[:100],
+            "contentType": 3,
+        }
+        try:
+            response = requests.post(endpoint, json=payload, proxies=proxies, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            if result.get("code") != 1000 or result.get("success") is False:
+                print(
+                    f"WxPusher 第 {index}/{len(batches)} 批次发送失败 [{report_type}]："
+                    f"{result.get('msg', '接口返回失败')}"
+                )
+                return False
+            print(f"WxPusher 第 {index}/{len(batches)} 批次发送成功 [{report_type}]")
+            if index < len(batches):
+                time.sleep(batch_interval)
+        except Exception as e:
+            print(f"WxPusher 第 {index}/{len(batches)} 批次发送出错 [{report_type}]：{e}")
+            return False
+
+    return True

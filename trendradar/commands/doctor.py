@@ -207,6 +207,7 @@ def _check_notification_channels(results: List[Tuple[str, str, str]], config: Di
         ("FEISHU_WEBHOOK_URL", "飞书"),
         ("DINGTALK_WEBHOOK_URL", "钉钉"),
         ("WEWORK_WEBHOOK_URL", "企业微信"),
+        ("WXPUSHER_SPT", "WxPusher"),
         ("BARK_URL", "Bark"),
         ("SLACK_WEBHOOK_URL", "Slack"),
         ("GENERIC_WEBHOOK_URL", "通用Webhook"),

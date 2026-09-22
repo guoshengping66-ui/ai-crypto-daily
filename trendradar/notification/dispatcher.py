@@ -32,6 +32,7 @@ from .senders import (
     send_to_telegram,
     send_to_wework,
     send_to_generic_webhook,
+    send_to_wxpusher,
 )
 
 
@@ -317,6 +318,13 @@ class NotificationDispatcher:
                 ai_analysis, display_regions, standalone_data
             )
 
+        # WxPusher（个人微信 ClawBot / WxPusher 客户端）
+        if self.config.get("WXPUSHER_SPT"):
+            results["wxpusher"] = self._send_wxpusher(
+                report_data, report_type, update_info, proxy_url, mode, rss_items, rss_new_items,
+                ai_analysis, display_regions, standalone_data
+            )
+
         # Telegram（需要配对验证）
         if self.config.get("TELEGRAM_BOT_TOKEN") and self.config.get("TELEGRAM_CHAT_ID"):
             results["telegram"] = self._send_telegram(
@@ -538,6 +546,40 @@ class NotificationDispatcher:
                 display_regions=display_regions or {},
                 standalone_data=sd,
             ),
+        )
+
+    def _send_wxpusher(
+        self,
+        report_data: Dict,
+        report_type: str,
+        update_info: Optional[Dict],
+        proxy_url: Optional[str],
+        mode: str,
+        rss_items: Optional[List[Dict]] = None,
+        rss_new_items: Optional[List[Dict]] = None,
+        ai_analysis: Optional[AIAnalysisResult] = None,
+        display_regions: Optional[Dict] = None,
+        standalone_data: Optional[Dict] = None,
+    ) -> bool:
+        """发送到 WxPusher（单个 SPT，支持热榜、RSS 与 AI 分析）。"""
+        rd, ri, rn, ai, sd = self._apply_display_regions(
+            report_data, display_regions, rss_items, rss_new_items, ai_analysis, standalone_data
+        )
+        return send_to_wxpusher(
+            spt=self.config["WXPUSHER_SPT"],
+            report_data=rd,
+            report_type=report_type,
+            update_info=update_info,
+            proxy_url=proxy_url,
+            mode=mode,
+            batch_size=self.config.get("MESSAGE_BATCH_SIZE", 3800),
+            batch_interval=self.config.get("BATCH_SEND_INTERVAL", 1.0),
+            split_content_func=self.split_content_func,
+            rss_items=ri,
+            rss_new_items=rn,
+            ai_analysis=ai,
+            display_regions=display_regions or {},
+            standalone_data=sd,
         )
 
     def _send_telegram(

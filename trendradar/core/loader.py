@@ -407,6 +407,7 @@ def _load_webhook_config(config_data: Dict) -> Dict:
     bark = channels.get("bark", {})
     slack = channels.get("slack", {})
     generic = channels.get("generic_webhook", {})
+    wxpusher = channels.get("wxpusher", {})
 
     return {
         # 飞书
@@ -416,6 +417,8 @@ def _load_webhook_config(config_data: Dict) -> Dict:
         # 企业微信
         "WEWORK_WEBHOOK_URL": _get_env_str("WEWORK_WEBHOOK_URL") or wework.get("webhook_url", ""),
         "WEWORK_MSG_TYPE": _get_env_str("WEWORK_MSG_TYPE") or wework.get("msg_type", "markdown"),
+        # WxPusher
+        "WXPUSHER_SPT": _get_env_str("WXPUSHER_SPT") or wxpusher.get("spt", ""),
         # Telegram
         "TELEGRAM_BOT_TOKEN": _get_env_str("TELEGRAM_BOT_TOKEN") or telegram.get("bot_token", ""),
         "TELEGRAM_CHAT_ID": _get_env_str("TELEGRAM_CHAT_ID") or telegram.get("chat_id", ""),
@@ -461,6 +464,10 @@ def _print_notification_sources(config: Dict) -> None:
         count = min(len(accounts), max_accounts)
         source = "环境变量" if os.environ.get("WEWORK_WEBHOOK_URL") else "配置文件"
         notification_sources.append(f"企业微信({source}, {count}个账号)")
+
+    if config["WXPUSHER_SPT"]:
+        source = "环境变量" if os.environ.get("WXPUSHER_SPT") else "配置文件"
+        notification_sources.append(f"WxPusher({source})")
 
     if config["TELEGRAM_BOT_TOKEN"] and config["TELEGRAM_CHAT_ID"]:
         tokens = parse_multi_account_config(config["TELEGRAM_BOT_TOKEN"])
