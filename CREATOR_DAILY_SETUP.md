@@ -42,6 +42,8 @@ RSS 源覆盖 OpenAI、Google AI、DeepMind、Hugging Face、NVIDIA、arXiv，�
 
 TrendRadar 上游的 GitHub Actions 工作流带有 7 天有效期，需要至少每 7 天在 `Actions → Check In → Run workflow` 手动续期；忘记续期后工作流会自动停用。这个限制来自上游项目当前的工作流设计。Docker/本地运行不受这项限制，但电脑需要在计划运行时开机并联网。
 
+**续期影响：**上游 `Check In` 工作流会删除仓库内已有的 GitHub Actions 运行记录，以重置这 7 天期限。若要保留运行日志，请在续期前先下载；已删除的运行记录无法从 GitHub Actions 页面恢复。
+
 ## 传播与事实标准
 
 筛选优先考虑新信息、实际影响、讨论空间和可写角度。模型生成的是草稿，不保证流量或涨粉；发布前应打开来源核对数字、时间、产品状态和币圈安全事件，加入自己的解释或实测。草稿不得冒充亲测，也不提供价格预测或买卖建议。
