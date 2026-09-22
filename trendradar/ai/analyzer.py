@@ -339,6 +339,11 @@ class AIAnalyzer:
         # RSS 内容（仅在启用时构建）
         if self.include_rss and rss_stats:
             remaining = self.max_news - news_count
+            if self._is_creator_daily_prompt():
+                # RSS groups are ordered by config priority. Round-robin
+                # selection prevents the first domain from consuming the
+                # entire creator-report context limit.
+                rss_stats = self._interleave_rss_groups(rss_stats, remaining)
             for stat in rss_stats:
                 if rss_count >= remaining:
                     break
@@ -368,7 +373,8 @@ class AIAnalyzer:
                             line += f" | {time_display}"
                         summary = str(t.get("summary") or "").strip()
                         if summary:
-                            line += f" | 摘要:{summary[:320]}"
+                            summary_limit = 180 if self._is_creator_daily_prompt() else 320
+                            line += f" | 摘要:{summary[:summary_limit]}"
                         source_url = t.get("url")
                         if source_url:
                             line += f" | 链接:{source_url}"
@@ -391,6 +397,35 @@ class AIAnalyzer:
             hotlist_analyzed=news_count,
             rss_analyzed=rss_count,
         )
+
+    @staticmethod
+    def _interleave_rss_groups(
+        rss_stats: List[Dict], limit: int
+    ) -> List[Dict]:
+        """Select RSS candidates round-robin across configured topic groups."""
+        if limit <= 0:
+            return []
+
+        selected = [[] for _ in rss_stats]
+        total = 0
+        while total < limit:
+            added = False
+            for index, stat in enumerate(rss_stats):
+                titles = stat.get("titles", [])
+                if len(selected[index]) < len(titles):
+                    selected[index].append(titles[len(selected[index])])
+                    total += 1
+                    added = True
+                    if total >= limit:
+                        break
+            if not added:
+                break
+
+        return [
+            {**stat, "titles": selected[index]}
+            for index, stat in enumerate(rss_stats)
+            if selected[index]
+        ]
 
     def _call_ai(self, user_prompt: str) -> str:
         """调用 AI API（使用 LiteLLM）"""

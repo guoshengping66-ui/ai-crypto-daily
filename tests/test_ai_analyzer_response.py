@@ -121,6 +121,24 @@ AI 选题（1/5）
         self.assertIn("协议升级", result.sentiment_controversy)
         self.assertIn("先发布 AI", result.signals)
 
+    def test_interleaves_creator_rss_groups_before_applying_context_limit(self):
+        selected = AIAnalyzer._interleave_rss_groups(
+            [
+                {"word": "币圈热点", "titles": [{"title": f"crypto-{i}"} for i in range(4)]},
+                {"word": "AI热点", "titles": [{"title": f"ai-{i}"} for i in range(4)]},
+            ],
+            5,
+        )
+
+        self.assertEqual(
+            [item["title"] for item in selected[0]["titles"]],
+            ["crypto-0", "crypto-1", "crypto-2"],
+        )
+        self.assertEqual(
+            [item["title"] for item in selected[1]["titles"]],
+            ["ai-0", "ai-1"],
+        )
+
 
 class AIClientParameterTests(unittest.TestCase):
     @patch("trendradar.ai.client.completion")
