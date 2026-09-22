@@ -216,7 +216,10 @@ class AIAnalyzer:
                     retry_result.raw_response = response
                     result = retry_result
                 else:
-                    print("[AI] JSON 修复失败，使用原始文本兜底")
+                    print("[AI] JSON 修复失败，拒绝将损坏内容当作日报发送")
+                    result.success = False
+                    result.core_trends = ""
+                    result.error = "AI 返回内容不是有效日报 JSON，自动修复也未成功；请重试或检查模型兼容性"
 
             # 如果配置未启用 RSS 分析，强制清空 AI 返回的 RSS 洞察
             if not self.include_rss:
@@ -225,6 +228,14 @@ class AIAnalyzer:
             # 如果配置未启用 standalone 分析，强制清空
             if not self.include_standalone:
                 result.standalone_summaries = {}
+
+            if result.success and self._is_creator_daily_prompt():
+                print(
+                    "[AI] 日报正文长度: "
+                    f"AI={len(result.core_trends)}，"
+                    f"币圈={len(result.sentiment_controversy)}，"
+                    f"优先发布={len(result.signals)}"
+                )
 
             # 填充统计数据
             result.total_news = total_news
@@ -630,20 +641,60 @@ class AIAnalyzer:
             result.success = True
             return result
 
+        # 有些兼容接口会把 JSON 包在 result/data/output 等对象里。
+        # 优先找包含实际日报内容的对象，避免顶层空壳遮住内层结果。
+        data = self._find_analysis_payload(data)
+        if not isinstance(data, dict):
+            result.error = "AI 返回的 JSON 不是日报对象"
+            return result
+
         # 解析成功，提取字段
         try:
-            result.core_trends = data.get("core_trends", "")
-            result.sentiment_controversy = data.get("sentiment_controversy", "")
-            result.signals = data.get("signals", "")
-            result.rss_insights = data.get("rss_insights", "")
-            result.outlook_strategy = data.get("outlook_strategy", "")
+            result.core_trends = self._content_to_text(data.get("core_trends", ""))
+            result.sentiment_controversy = self._content_to_text(
+                data.get("sentiment_controversy", "")
+            )
+            result.signals = self._content_to_text(data.get("signals", ""))
+            result.rss_insights = self._content_to_text(data.get("rss_insights", ""))
+            result.outlook_strategy = self._content_to_text(
+                data.get("outlook_strategy", "")
+            )
 
             # 解析独立展示区概括
             summaries = data.get("standalone_summaries", {})
             if isinstance(summaries, dict):
                 result.standalone_summaries = {
-                    str(k): str(v) for k, v in summaries.items()
+                    str(k): self._content_to_text(v)
+                    for k, v in summaries.items()
+                    if self._content_to_text(v)
                 }
+
+            if self._is_creator_daily_prompt():
+                missing = []
+                if not result.core_trends.strip():
+                    missing.append("AI 选题")
+                if not result.sentiment_controversy.strip():
+                    missing.append("币圈选题")
+                if missing:
+                    result.error = "模型没有生成必需分区：" + "、".join(missing)
+                    print(f"[AI] 日报缺少必需分区: {'、'.join(missing)}")
+                    return result
+
+            visible_fields = (
+                result.core_trends,
+                result.sentiment_controversy,
+                result.signals,
+                result.rss_insights,
+                result.outlook_strategy,
+                *result.standalone_summaries.values(),
+            )
+            if not any(value.strip() for value in visible_fields):
+                result.error = (
+                    "模型返回了可解析的 JSON，但日报正文为空；"
+                    "请检查模型输出或重试，避免把空报告误当成成功"
+                )
+                print("[AI] JSON 结构可解析，但所有可展示字段均为空")
+                return result
 
             result.success = True
         except (KeyError, TypeError, AttributeError) as e:
@@ -652,3 +703,65 @@ class AIAnalyzer:
             result.success = True
 
         return result
+
+    @staticmethod
+    def _content_to_text(value: Any) -> str:
+        """将模型字段安全地归一为可展示文本。"""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            parts = []
+            for item in value:
+                text = AIAnalyzer._content_to_text(item)
+                if text:
+                    parts.append(text)
+            return "\n".join(parts)
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value).strip()
+
+    @classmethod
+    def _find_analysis_payload(cls, data: Any) -> Any:
+        """在常见 API 包装对象中寻找实际日报字段。"""
+        report_keys = {
+            "core_trends",
+            "sentiment_controversy",
+            "signals",
+            "rss_insights",
+            "outlook_strategy",
+            "standalone_summaries",
+        }
+        queue = [data]
+        fallback = None
+        visited = set()
+
+        while queue:
+            candidate = queue.pop(0)
+            if not isinstance(candidate, dict) or id(candidate) in visited:
+                continue
+            visited.add(id(candidate))
+
+            if report_keys.intersection(candidate):
+                if fallback is None:
+                    fallback = candidate
+                for key in report_keys:
+                    value = candidate.get(key)
+                    if isinstance(value, dict):
+                        if any(cls._content_to_text(v) for v in value.values()):
+                            return candidate
+                    elif cls._content_to_text(value):
+                        return candidate
+
+            # 递归兼容 result/data/output/response 等常见包装字段，
+            # 同时兼容提供商自定义包装名。
+            queue.extend(value for value in candidate.values() if isinstance(value, dict))
+
+        return fallback if fallback is not None else data
+
+    def _is_creator_daily_prompt(self) -> bool:
+        """判断当前提示词是否要求 AI 与币圈双分区选题日报。"""
+        analysis_config = getattr(self, "analysis_config", {}) or {}
+        prompt_file = str(analysis_config.get("PROMPT_FILE", "")).replace("\\", "/")
+        return prompt_file.rsplit("/", 1)[-1] == "creator_daily_prompt.txt"
