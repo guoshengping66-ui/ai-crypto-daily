@@ -751,8 +751,15 @@ class AIAnalyzer:
         aliases = {
             "ai选题": "core_trends",
             "ai今日选题": "core_trends",
+            "ai热点": "core_trends",
+            "人工智能选题": "core_trends",
+            "人工智能热点": "core_trends",
             "币圈选题": "sentiment_controversy",
             "币圈今日选题": "sentiment_controversy",
+            "币圈热点": "sentiment_controversy",
+            "加密货币选题": "sentiment_controversy",
+            "加密货币热点": "sentiment_controversy",
+            "加密热点": "sentiment_controversy",
             "今日优先发布": "signals",
             "今日优先发布建议": "signals",
             "信息核查": "rss_insights",
@@ -764,10 +771,20 @@ class AIAnalyzer:
         for line in content.splitlines():
             heading = re.sub(r"^\s*#{1,6}\s*", "", line).strip()
             heading = heading.replace("**", "").replace("__", "")
+            heading = re.sub(r"^\s*(?:[-*•·]|\d+[.)、])\s*", "", heading)
             heading = heading.strip("【】[]:： *_`")
             heading = re.sub(r"[（(].*?[）)]", "", heading)
             normalized = re.sub(r"\s+", "", heading).lower()
             field = aliases.get(normalized)
+            if field is None:
+                field = next(
+                    (
+                        target
+                        for alias, target in aliases.items()
+                        if normalized.startswith(alias)
+                    ),
+                    None,
+                )
             if field:
                 current_field = field
                 continue
@@ -791,7 +808,16 @@ class AIAnalyzer:
         if not result.sentiment_controversy:
             missing.append("币圈选题")
         if missing:
-            result.error = "模型纯文本日报缺少必需分区：" + "、".join(missing)
+            found_sections = [
+                name for name, lines in sections.items() if any(line.strip() for line in lines)
+            ]
+            result.error = (
+                "模型纯文本日报缺少必需分区："
+                + "、".join(missing)
+                + f"（响应 {len(content)} 字符，识别到区块："
+                + ("、".join(found_sections) if found_sections else "无")
+                + "）"
+            )
             print(f"[AI] 纯文本日报缺少必需分区: {'、'.join(missing)}")
             return result
 

@@ -139,6 +139,22 @@ AI 选题（1/5）
             ["ai-0", "ai-1"],
         )
 
+    def test_accepts_markdown_and_common_topic_heading_variants(self):
+        self.analyzer.analysis_config = {
+            "PROMPT_FILE": "config/creator_daily_prompt.txt"
+        }
+        result = self.analyzer._parse_response(
+            """### **AI 热点（2/5）**
+1. 一个 AI 事件
+
+- 【加密货币选题】
+1. 一个币圈事件"""
+        )
+
+        self.assertTrue(result.success)
+        self.assertIn("AI 事件", result.core_trends)
+        self.assertIn("币圈事件", result.sentiment_controversy)
+
 
 class AIClientParameterTests(unittest.TestCase):
     @patch("trendradar.ai.client.completion")
