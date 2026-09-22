@@ -7,6 +7,7 @@ AI 分析器模块
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
@@ -607,6 +608,10 @@ class AIAnalyzer:
             result.success = True
             return result
 
+        # 创作者日报使用纯文本分区，避免长内容被模型生成成不完整 JSON。
+        if self._is_creator_daily_prompt() and not json_str.lstrip().startswith(("{", "[")):
+            return self._parse_creator_daily_text(json_str, response)
+
         # 第一步：标准 JSON 解析
         data = None
         parse_error = None
@@ -702,6 +707,60 @@ class AIAnalyzer:
             result.core_trends = json_str[:500] + "..." if len(json_str) > 500 else json_str
             result.success = True
 
+        return result
+
+    def _parse_creator_daily_text(
+        self, content: str, raw_response: str = ""
+    ) -> AIAnalysisResult:
+        """将固定标题的创作者日报纯文本映射回统一结果结构。"""
+        aliases = {
+            "ai选题": "core_trends",
+            "ai今日选题": "core_trends",
+            "币圈选题": "sentiment_controversy",
+            "币圈今日选题": "sentiment_controversy",
+            "今日优先发布": "signals",
+            "今日优先发布建议": "signals",
+            "信息核查": "rss_insights",
+            "账号运营建议": "outlook_strategy",
+        }
+        sections = {field: [] for field in aliases.values()}
+        current_field = None
+
+        for line in content.splitlines():
+            heading = re.sub(r"^\s*#{1,6}\s*", "", line).strip()
+            heading = heading.replace("**", "").replace("__", "")
+            heading = heading.strip("【】[]:： *_`")
+            heading = re.sub(r"[（(].*?[）)]", "", heading)
+            normalized = re.sub(r"\s+", "", heading).lower()
+            field = aliases.get(normalized)
+            if field:
+                current_field = field
+                continue
+            if current_field:
+                sections[current_field].append(line)
+
+        result = AIAnalysisResult(raw_response=raw_response or content)
+        result.core_trends = "\n".join(sections["core_trends"]).strip()
+        result.sentiment_controversy = "\n".join(
+            sections["sentiment_controversy"]
+        ).strip()
+        result.signals = "\n".join(sections["signals"]).strip()
+        result.rss_insights = "\n".join(sections["rss_insights"]).strip()
+        result.outlook_strategy = "\n".join(
+            sections["outlook_strategy"]
+        ).strip()
+
+        missing = []
+        if not result.core_trends:
+            missing.append("AI 选题")
+        if not result.sentiment_controversy:
+            missing.append("币圈选题")
+        if missing:
+            result.error = "模型纯文本日报缺少必需分区：" + "、".join(missing)
+            print(f"[AI] 纯文本日报缺少必需分区: {'、'.join(missing)}")
+            return result
+
+        result.success = True
         return result
 
     @staticmethod

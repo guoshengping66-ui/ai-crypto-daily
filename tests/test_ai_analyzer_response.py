@@ -89,6 +89,38 @@ class AIAnalyzerResponseTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("币圈选题", result.error)
 
+    def test_parses_creator_daily_plain_text_sections(self):
+        self.analyzer.analysis_config = {
+            "PROMPT_FILE": "config/creator_daily_prompt.txt"
+        }
+        result = self.analyzer._parse_response(
+            """【AI选题】
+AI 选题（1/5）
+1. 事件：新模型发布
+推文草稿：关注它的实际用途。
+来源：https://example.com/ai
+
+【币圈选题】
+币圈选题（1/5）
+1. 事件：协议升级
+推文草稿：升级会改变哪些用户体验？
+来源：https://example.com/crypto
+
+【今日优先发布】
+先发布 AI 选题。
+
+【信息核查】
+核实发布时间。
+
+【账号运营建议】
+先发 AI，再发币圈。"""
+        )
+
+        self.assertTrue(result.success)
+        self.assertIn("新模型发布", result.core_trends)
+        self.assertIn("协议升级", result.sentiment_controversy)
+        self.assertIn("先发布 AI", result.signals)
+
 
 class AIClientParameterTests(unittest.TestCase):
     @patch("trendradar.ai.client.completion")
