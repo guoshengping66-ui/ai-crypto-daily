@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      bark_test_message:
+        description: "可选：Bark 预览正文；填写后仍只发送一条通知"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: crawler-${{ github.ref_name }}
@@ -164,6 +169,7 @@ jobs:
       - name: Send one short Bark test notification
         env:
           BARK_URL: ${{ secrets.BARK_URL }}
+          BARK_TEST_MESSAGE: ${{ inputs.bark_test_message }}
         shell: bash
         run: |
           set -euo pipefail
@@ -181,9 +187,18 @@ jobs:
           fi
           echo "::add-mask::$device_key"
 
+          message_title="Bark 连通性测试"
+          message_body="如果你在 iPhone Bark 通知中看到这条消息，推送已连通。"
+          if [[ -n "$BARK_TEST_MESSAGE" ]]; then
+            message_title="AI 选题预览"
+            message_body="$BARK_TEST_MESSAGE"
+          fi
+
           payload=$(jq -cn \
             --arg key "$device_key" \
-            '{device_key:$key, title:"Bark 连通性测试", body:"如果你在 iPhone Bark 通知中看到这条消息，推送已连通。", group:"TrendRadar"}')
+            --arg title "$message_title" \
+            --arg body "$message_body" \
+            '{device_key:$key, title:$title, body:$body, group:"TrendRadar"}')
           response=$(curl --silent --show-error --fail-with-body --max-time 30 \
             --request POST \
             --header "Content-Type: application/json" \
