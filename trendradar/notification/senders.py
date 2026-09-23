@@ -1100,7 +1100,7 @@ def send_to_bark(
     if ai_analysis:
         ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
         crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+        if (ai_section.startswith("AI选题") or crypto_section.startswith("币圈选题") or report_type == "全天汇总"):
             ai_cards = _parse_creator_topic_cards(ai_section)
             crypto_cards = _parse_creator_topic_cards(crypto_section)
             return _send_creator_topics_to_bark(
