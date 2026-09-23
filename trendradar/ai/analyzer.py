@@ -298,16 +298,15 @@ class AIAnalyzer:
                         )
                         completion_prompt = (
                             user_prompt
-                            + "
-
-【再次定向补全】以下分区仍不足3条："
+                            + "\n\n【再次定向补全】以下分区仍不足3条："
                             + "、".join(retry_labels)
                             + "。请只返回以下字段的有效JSON对象；每个字段尽量给足3条完整编号卡片，"
                             + "优先近24小时，不足时扩展到近72小时；较旧事件标注实际日期和【近72小时】。"
-                            + "必须提供候选材料中的真实来源URL，不得编造：
-"
+                            + "必须提供候选材料中的真实来源URL，不得编造：\n"
                             + completion_schema
-                        )                            self._call_ai(completion_prompt)
+                        )
+                        completion_result = self._parse_response(
+                            self._call_ai(completion_prompt)
                         )
                         for field in still_missing_fields:
                             completion_value = str(
