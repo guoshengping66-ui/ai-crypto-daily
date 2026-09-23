@@ -18,6 +18,7 @@
 import smtplib
 import time
 import json
+import re
 from datetime import datetime
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
@@ -146,6 +147,16 @@ def send_to_feishu(
     ai_content = _render_ai_analysis(ai_analysis, "feishu") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 预留批次头部空间，避免添加头部后超限
     header_reserve = get_max_batch_header_size("feishu")
     batches = split_content_func(
@@ -278,6 +289,16 @@ def send_to_dingtalk(
     ai_content = _render_ai_analysis(ai_analysis, "dingtalk") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 预留批次头部空间，避免添加头部后超限
     header_reserve = get_max_batch_header_size("dingtalk")
     batches = split_content_func(
@@ -407,6 +428,16 @@ def send_to_wework(
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size(header_format_type)
     batches = split_content_func(
@@ -525,6 +556,16 @@ def send_to_telegram(
     ai_content = _render_ai_analysis(ai_analysis, "telegram") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("telegram")
     batches = split_content_func(
@@ -822,6 +863,16 @@ def send_to_ntfy(
     ai_content = _render_ai_analysis(ai_analysis, "ntfy") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("ntfy")
     batches = split_content_func(
@@ -936,6 +987,102 @@ def send_to_ntfy(
     return True
 
 
+def _parse_creator_topic_cards(content: str) -> list:
+    """Parse numbered creator-daily items without splitting arbitrary report text."""
+    text = str(content or "").strip()
+    matches = list(re.finditer(r"(?m)^[ \t]*(\d+)[.)、][ \t]*", text))
+    cards = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        card = text[match.end():end].strip()
+        lines = [line.strip() for line in card.splitlines() if line.strip()]
+        if not lines:
+            continue
+        first_line = lines[0].strip("* ")
+        header = re.match(r"^【([^】]{1,16})】\s*(.+)$", first_line)
+        if not header:
+            continue
+        post_type, headline = header.groups()
+        body_lines = lines[1:]
+        body = []
+        for line in body_lines:
+            line = line.strip("* ")
+            line = re.sub(r"^X[：:]", "X 草稿：", line)
+            line = re.sub(r"^原文[：:]", "来源：", line)
+            body.append(line)
+        cards.append({"post_type": post_type, "headline": headline.strip(), "body": "
+".join(body)})
+    return cards
+
+
+def _send_creator_topics_to_bark(
+    api_endpoint: str,
+    device_key: str,
+    proxies: Optional[Dict],
+    ai_cards: list,
+    crypto_cards: list,
+    account_label: str = "",
+    batch_interval: float = 1.0,
+) -> bool:
+    """Send one well-formatted Bark notification per creator topic."""
+    log_prefix = f"Bark{account_label}" if account_label else "Bark"
+    if len(ai_cards) != 3 or len(crypto_cards) != 3:
+        message = (
+            f"今天的选题卡片不完整：AI {len(ai_cards)}/3，币圈 {len(crypto_cards)}/3。"
+            "为避免推送混乱，未发送拆分日报；请检查本次 AI 生成结果。"
+        )
+        try:
+            response = requests.post(
+                api_endpoint,
+                json={"title": "日报生成不完整", "body": message, "device_key": device_key,
+                      "sound": "default", "group": "TrendRadar", "action": "none"},
+                proxies=proxies,
+                timeout=30,
+            )
+            if response.status_code == 200 and response.json().get("code") == 200:
+                print(f"{log_prefix}日报不完整提醒已发送（AI={len(ai_cards)}, 币圈={len(crypto_cards)}）")
+            else:
+                print(f"{log_prefix}日报不完整提醒发送失败，状态码：{response.status_code}")
+        except Exception as exc:
+            print(f"{log_prefix}日报不完整提醒发送异常：{exc}")
+        return False
+
+    ordered = (
+        [("AI", card, index) for index, card in enumerate(ai_cards, 1)]
+        + [("币圈", card, index) for index, card in enumerate(crypto_cards, 1)]
+    )
+    success_count = 0
+    # Bark 按最新消息在前展示，倒序发送以便打开后从第 1 条开始阅读。
+    for push_index, (category, card, item_index) in enumerate(reversed(ordered), 1):
+        headline = card["headline"]
+        title = f"{category} {item_index}/3｜{headline}"[:48]
+        body = f"形式：{card['post_type']}
+{card['body']}".strip()
+        try:
+            response = requests.post(
+                api_endpoint,
+                json={"title": title, "body": body, "device_key": device_key,
+                      "sound": "default", "group": "TrendRadar", "action": "none"},
+                proxies=proxies,
+                timeout=30,
+            )
+            result = response.json() if response.status_code == 200 else {}
+            if response.status_code == 200 and result.get("code") == 200:
+                success_count += 1
+                print(f"{log_prefix}选题推送成功 {category} {item_index}/3（{push_index}/6）")
+            else:
+                print(
+                    f"{log_prefix}选题推送失败 {category} {item_index}/3，"
+                    f"HTTP {response.status_code}：{result.get('message', '无响应详情')}"
+                )
+        except Exception as exc:
+            print(f"{log_prefix}选题推送异常 {category} {item_index}/3：{exc}")
+        if push_index < len(ordered):
+            time.sleep(batch_interval)
+
+    print(f"{log_prefix}六条选题推送完成：成功 {success_count}/6（AI=3，币圈=3）")
+    return success_count == 6
+
 def send_to_bark(
     bark_url: str,
     report_data: Dict,
@@ -997,6 +1144,16 @@ def send_to_bark(
     ai_content = _render_ai_analysis(ai_analysis, "bark") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("bark")
     batches = split_content_func(
@@ -1148,6 +1305,16 @@ def send_to_slack(
     ai_content = _render_ai_analysis(ai_analysis, "slack") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("slack")
     batches = split_content_func(
@@ -1259,6 +1426,16 @@ def send_to_generic_webhook(
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )
     # 获取分批内容
     # 使用 'wework' 作为 format_type 以获取 markdown 格式的通用输出
     # 预留一定空间给模板外壳
@@ -1360,7 +1537,17 @@ def send_to_wxpusher(
 
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
-    batches = split_content_func(
+
+    if ai_analysis and getattr(ai_analysis, "success", False):
+        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
+        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
+        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
+            ai_cards = _parse_creator_topic_cards(ai_section)
+            crypto_cards = _parse_creator_topic_cards(crypto_section)
+            return _send_creator_topics_to_bark(
+                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
+                account_label=account_label, batch_interval=batch_interval,
+            )    batches = split_content_func(
         report_data,
         "wework",
         update_info,
