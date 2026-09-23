@@ -219,8 +219,8 @@ jobs:
           if [[ "$endpoint" == "https://wxpusher.zjiecode.com/api/send/message" ]]; then
             response_shape=$(jq -c '{code: (.code // null), data_type: (.data | type), target_count: (if (.data | type) == "array" then (.data | length) else null end), top_level_record_id_present: has("sendRecordId"), data_item_record_id_flags: (if (.data | type) == "array" then [.data[] | has("sendRecordId")] else [] end)}' <<< "$response")
             echo "WxPusher response shape (values redacted): $response_shape"
-            target_results=$(jq -c '[.data[]? | {code: (.code // null), status: (.status // null), send_record_id_present: (.sendRecordId? != null)}]' <<< "$response")
-            echo "WxPusher recipient results (UIDs and IDs redacted): $target_results"
+            target_results=$(jq -c '[.data[]? | {code: (.code // null), status_hint: (if ((.status // "") | tostring | contains("未订阅应用")) then "not_subscribed_to_app" elif ((.status // "") | tostring | contains("成功")) then "success" elif .status == null then "unknown" else "other" end), send_record_id_present: (.sendRecordId? != null)}]' <<< "$response")
+            echo "WxPusher recipient results (UIDs, IDs, and detailed messages redacted): $target_results"
 
             mapfile -t send_record_ids < <(jq -r '[.sendRecordId?, .data[]?.sendRecordId?] | map(select(. != null)) | .[]' <<< "$response")
             if (( ${#send_record_ids[@]} == 0 )); then
