@@ -147,16 +147,7 @@ def send_to_feishu(
     ai_content = _render_ai_analysis(ai_analysis, "feishu") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 预留批次头部空间，避免添加头部后超限
     header_reserve = get_max_batch_header_size("feishu")
     batches = split_content_func(
@@ -289,16 +280,7 @@ def send_to_dingtalk(
     ai_content = _render_ai_analysis(ai_analysis, "dingtalk") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 预留批次头部空间，避免添加头部后超限
     header_reserve = get_max_batch_header_size("dingtalk")
     batches = split_content_func(
@@ -428,16 +410,7 @@ def send_to_wework(
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size(header_format_type)
     batches = split_content_func(
@@ -556,16 +529,7 @@ def send_to_telegram(
     ai_content = _render_ai_analysis(ai_analysis, "telegram") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("telegram")
     batches = split_content_func(
@@ -863,16 +827,7 @@ def send_to_ntfy(
     ai_content = _render_ai_analysis(ai_analysis, "ntfy") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("ntfy")
     batches = split_content_func(
@@ -1152,6 +1107,8 @@ def send_to_bark(
                 api_endpoint, device_key, proxies, ai_cards, crypto_cards,
                 account_label=account_label, batch_interval=batch_interval,
             )
+
+
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("bark")
     batches = split_content_func(
@@ -1303,16 +1260,7 @@ def send_to_slack(
     ai_content = _render_ai_analysis(ai_analysis, "slack") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 获取分批内容，预留批次头部空间
     header_reserve = get_max_batch_header_size("slack")
     batches = split_content_func(
@@ -1424,16 +1372,7 @@ def send_to_generic_webhook(
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )
+
     # 获取分批内容
     # 使用 'wework' 作为 format_type 以获取 markdown 格式的通用输出
     # 预留一定空间给模板外壳
@@ -1536,16 +1475,7 @@ def send_to_wxpusher(
     ai_content = _render_ai_analysis(ai_analysis, "wework") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
-        ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
-        crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
-            ai_cards = _parse_creator_topic_cards(ai_section)
-            crypto_cards = _parse_creator_topic_cards(crypto_section)
-            return _send_creator_topics_to_bark(
-                api_endpoint, device_key, proxies, ai_cards, crypto_cards,
-                account_label=account_label, batch_interval=batch_interval,
-            )    batches = split_content_func(
+    batches = split_content_func(
         report_data,
         "wework",
         update_info,
