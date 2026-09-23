@@ -1097,7 +1097,7 @@ def send_to_bark(
     ai_content = _render_ai_analysis(ai_analysis, "bark") if ai_analysis else None
     ai_stats = _extract_ai_stats(ai_analysis)
 
-    if ai_analysis and getattr(ai_analysis, "success", False):
+    if ai_analysis:
         ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
         crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
         if ai_section.startswith("AI选题") and crypto_section.startswith("币圈选题"):
