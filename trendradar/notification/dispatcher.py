@@ -318,8 +318,12 @@ class NotificationDispatcher:
                 ai_analysis, display_regions, standalone_data
             )
 
-        # WxPusher（个人微信 ClawBot / WxPusher 客户端）
-        if self.config.get("WXPUSHER_SPT"):
+        # WxPusher 标准推送优先（微信 UID）；未配置时兼容 SPT 客户端推送。
+        if (
+            self.config.get("WXPUSHER_SPT")
+            or self.config.get("WXPUSHER_APP_TOKEN")
+            or self.config.get("WXPUSHER_UIDS")
+        ):
             results["wxpusher"] = self._send_wxpusher(
                 report_data, report_type, update_info, proxy_url, mode, rss_items, rss_new_items,
                 ai_analysis, display_regions, standalone_data
@@ -561,12 +565,21 @@ class NotificationDispatcher:
         display_regions: Optional[Dict] = None,
         standalone_data: Optional[Dict] = None,
     ) -> bool:
-        """发送到 WxPusher（单个 SPT，支持热榜、RSS 与 AI 分析）。"""
+        """发送到 WxPusher 标准 API（优先）或 SPT，支持完整日报。"""
         rd, ri, rn, ai, sd = self._apply_display_regions(
             report_data, display_regions, rss_items, rss_new_items, ai_analysis, standalone_data
         )
+        app_token = self.config.get("WXPUSHER_APP_TOKEN", "")
+        raw_uids = self.config.get("WXPUSHER_UIDS", "")
+        if isinstance(raw_uids, str):
+            uids = [uid.strip() for uid in raw_uids.split(",") if uid.strip()]
+        else:
+            uids = [str(uid).strip() for uid in (raw_uids or []) if str(uid).strip()]
+
         return send_to_wxpusher(
-            spt=self.config["WXPUSHER_SPT"],
+            spt=self.config.get("WXPUSHER_SPT", ""),
+            app_token=app_token,
+            uids=uids,
             report_data=rd,
             report_type=report_type,
             update_info=update_info,

@@ -207,7 +207,6 @@ def _check_notification_channels(results: List[Tuple[str, str, str]], config: Di
         ("FEISHU_WEBHOOK_URL", "飞书"),
         ("DINGTALK_WEBHOOK_URL", "钉钉"),
         ("WEWORK_WEBHOOK_URL", "企业微信"),
-        ("WXPUSHER_SPT", "WxPusher"),
         ("BARK_URL", "Bark"),
         ("SLACK_WEBHOOK_URL", "Slack"),
         ("GENERIC_WEBHOOK_URL", "通用Webhook"),
@@ -215,6 +214,15 @@ def _check_notification_channels(results: List[Tuple[str, str, str]], config: Di
         values = parse_multi_account_config(config.get(key, ""))
         if values:
             channel_details.append(f"{name}({min(len(values), max_accounts)}个)")
+
+    wxpusher_app_token = config.get("WXPUSHER_APP_TOKEN", "")
+    wxpusher_uids = config.get("WXPUSHER_UIDS", "")
+    if wxpusher_app_token and wxpusher_uids:
+        channel_details.append("WxPusher 标准推送")
+    elif wxpusher_app_token or wxpusher_uids:
+        channel_issues.append("WxPusher 标准推送需要同时配置 appToken 和 UID")
+    elif config.get("WXPUSHER_SPT"):
+        channel_details.append("WxPusher SPT 客户端推送")
 
     tg_tokens = parse_multi_account_config(config.get("TELEGRAM_BOT_TOKEN", ""))
     tg_chats = parse_multi_account_config(config.get("TELEGRAM_CHAT_ID", ""))

@@ -420,6 +420,8 @@ def _load_webhook_config(config_data: Dict) -> Dict:
         "WEWORK_MSG_TYPE": _get_env_str("WEWORK_MSG_TYPE") or wework.get("msg_type", "markdown"),
         # WxPusher
         "WXPUSHER_SPT": _get_env_str("WXPUSHER_SPT") or wxpusher.get("spt", ""),
+        "WXPUSHER_APP_TOKEN": _get_env_str("WXPUSHER_APP_TOKEN") or wxpusher.get("app_token", ""),
+        "WXPUSHER_UIDS": _get_env_str("WXPUSHER_UIDS") or wxpusher.get("uids", ""),
         # Telegram
         "TELEGRAM_BOT_TOKEN": _get_env_str("TELEGRAM_BOT_TOKEN") or telegram.get("bot_token", ""),
         "TELEGRAM_CHAT_ID": _get_env_str("TELEGRAM_CHAT_ID") or telegram.get("chat_id", ""),
@@ -466,9 +468,16 @@ def _print_notification_sources(config: Dict) -> None:
         source = "环境变量" if os.environ.get("WEWORK_WEBHOOK_URL") else "配置文件"
         notification_sources.append(f"企业微信({source}, {count}个账号)")
 
-    if config["WXPUSHER_SPT"]:
+    if config["WXPUSHER_APP_TOKEN"] and config["WXPUSHER_UIDS"]:
+        source = "环境变量" if (
+            os.environ.get("WXPUSHER_APP_TOKEN") and os.environ.get("WXPUSHER_UIDS")
+        ) else "配置文件"
+        notification_sources.append(f"WxPusher 标准推送({source})")
+    elif config["WXPUSHER_APP_TOKEN"] or config["WXPUSHER_UIDS"]:
+        notification_sources.append("WxPusher 标准推送配置不完整")
+    elif config["WXPUSHER_SPT"]:
         source = "环境变量" if os.environ.get("WXPUSHER_SPT") else "配置文件"
-        notification_sources.append(f"WxPusher({source})")
+        notification_sources.append(f"WxPusher SPT({source})")
 
     if config["TELEGRAM_BOT_TOKEN"] and config["TELEGRAM_CHAT_ID"]:
         tokens = parse_multi_account_config(config["TELEGRAM_BOT_TOKEN"])

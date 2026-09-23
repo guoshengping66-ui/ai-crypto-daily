@@ -164,6 +164,7 @@ class NewsAnalyzer:
                 cfg["DINGTALK_WEBHOOK_URL"],
                 cfg["WEWORK_WEBHOOK_URL"],
                 cfg["WXPUSHER_SPT"],
+                (cfg.get("WXPUSHER_APP_TOKEN") and cfg.get("WXPUSHER_UIDS")),
                 (cfg["TELEGRAM_BOT_TOKEN"] and cfg["TELEGRAM_CHAT_ID"]),
                 (
                     cfg["EMAIL_FROM"]

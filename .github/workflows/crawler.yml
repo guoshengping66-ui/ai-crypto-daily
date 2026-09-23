@@ -84,6 +84,8 @@ jobs:
           WEWORK_WEBHOOK_URL: ${{ secrets.WEWORK_WEBHOOK_URL }}
           WEWORK_MSG_TYPE: ${{ secrets.WEWORK_MSG_TYPE }}
           WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
+          WXPUSHER_APP_TOKEN: ${{ secrets.WXPUSHER_APP_TOKEN }}
+          WXPUSHER_UIDS: ${{ secrets.WXPUSHER_UIDS }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
@@ -164,23 +166,49 @@ jobs:
       - name: Send one secret-safe plain-text WxPusher test message
         env:
           WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
+          WXPUSHER_APP_TOKEN: ${{ secrets.WXPUSHER_APP_TOKEN }}
+          WXPUSHER_UIDS: ${{ secrets.WXPUSHER_UIDS }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$WXPUSHER_SPT" ]]; then
-            echo "WXPUSHER_SPT repository secret is missing"
+          content="TrendRadar 纯文本连通性测试。如果收到，请回复或确认。"
+          summary="TrendRadar 纯文本测试"
+
+          if [[ -n "$WXPUSHER_APP_TOKEN" || -n "$WXPUSHER_UIDS" ]]; then
+            if [[ -z "$WXPUSHER_APP_TOKEN" || -z "$WXPUSHER_UIDS" ]]; then
+              echo "Standard WxPusher mode requires both WXPUSHER_APP_TOKEN and WXPUSHER_UIDS"
+              exit 1
+            fi
+            uids_json=$(jq -cn --arg raw "$WXPUSHER_UIDS" \
+              '$raw | split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0))')
+            if [[ "$uids_json" == "[]" ]]; then
+              echo "WXPUSHER_UIDS contains no usable UID"
+              exit 1
+            fi
+            endpoint="https://wxpusher.zjiecode.com/api/send/message"
+            payload=$(jq -n \
+              --arg appToken "$WXPUSHER_APP_TOKEN" \
+              --argjson uids "$uids_json" \
+              --arg summary "$summary" \
+              --arg content "$content" \
+              '{appToken:$appToken, uids:$uids, summary:$summary, content:$content, contentType:1}')
+          elif [[ -n "$WXPUSHER_SPT" ]]; then
+            endpoint="https://wxpusher.zjiecode.com/api/send/message/simple-push"
+            payload=$(jq -n \
+              --arg spt "$WXPUSHER_SPT" \
+              --arg summary "$summary" \
+              --arg content "$content" \
+              '{spt:$spt, summary:$summary, content:$content, contentType:1}')
+          else
+            echo "No WxPusher credentials are configured"
             exit 1
           fi
 
-          payload=$(jq -n \
-            --arg spt "$WXPUSHER_SPT" \
-            --arg content "TrendRadar 纯文本连通性测试。如果收到，请回复或确认。" \
-            '{spt:$spt, summary:"TrendRadar 纯文本测试", content:$content, contentType:1}')
           response=$(curl --silent --show-error --fail-with-body \
             --request POST \
             --header "Content-Type: application/json" \
             --data "$payload" \
-            "https://wxpusher.zjiecode.com/api/send/message/simple-push")
+            "$endpoint")
           code=$(jq -r '.code // empty' <<< "$response")
           message=$(jq -r '.msg // empty' <<< "$response")
           echo "WxPusher API response: code=$code, message=$message"

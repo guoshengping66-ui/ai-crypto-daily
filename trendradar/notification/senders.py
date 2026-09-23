@@ -1344,9 +1344,15 @@ def send_to_wxpusher(
     ai_analysis: Any = None,
     display_regions: Optional[Dict] = None,
     standalone_data: Optional[Dict] = None,
+    app_token: str = "",
+    uids: Optional[list] = None,
 ) -> bool:
-    """通过 WxPusher SPT 极简推送发送 Markdown 报告。"""
-    if not spt:
+    """通过标准 WxPusher API 推送，未配置时兼容 SPT 极简推送。"""
+    standard_configured = bool(app_token or uids)
+    if standard_configured and not (app_token and uids):
+        print("WxPusher 标准推送需要同时配置 appToken 和 UID，跳过发送")
+        return False
+    if not standard_configured and not spt:
         print("WxPusher SPT 未配置，跳过推送")
         return False
     if split_content_func is None:
@@ -1369,17 +1375,24 @@ def send_to_wxpusher(
     )
     batches = add_batch_headers(batches, "wework", batch_size)
 
-    endpoint = "https://wxpusher.zjiecode.com/api/send/message/simple-push"
+    endpoint = (
+        "https://wxpusher.zjiecode.com/api/send/message"
+        if standard_configured
+        else "https://wxpusher.zjiecode.com/api/send/message/simple-push"
+    )
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     print(f"WxPusher 消息分为 {len(batches)} 批次发送 [{report_type}]")
 
     for index, content in enumerate(batches, 1):
         payload = {
-            "spt": spt,
             "content": content,
             "summary": report_type[:100],
             "contentType": 3,
         }
+        if standard_configured:
+            payload.update({"appToken": app_token, "uids": uids})
+        else:
+            payload["spt"] = spt
         try:
             response = requests.post(endpoint, json=payload, proxies=proxies, timeout=30)
             response.raise_for_status()
@@ -1390,7 +1403,7 @@ def send_to_wxpusher(
                     f"{result.get('msg', '接口返回失败')}"
                 )
                 return False
-            print(f"WxPusher 第 {index}/{len(batches)} 批次发送成功 [{report_type}]")
+            print(f"WxPusher 已受理第 {index}/{len(batches)} 批次 [{report_type}]")
             if index < len(batches):
                 time.sleep(batch_interval)
         except Exception as e:

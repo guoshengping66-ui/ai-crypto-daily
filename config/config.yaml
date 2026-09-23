@@ -280,7 +280,9 @@ notification:
       msg_type: "text"                # 个人微信应用通道使用纯文本
 
     wxpusher:
-      spt: ""                          # WxPusher SPT；建议通过 WXPUSHER_SPT 环境变量配置
+      spt: ""                          # WxPusher 客户端推送备用；建议用 WXPUSHER_SPT 环境变量
+      app_token: ""                    # 标准推送应用密钥；建议用 WXPUSHER_APP_TOKEN 环境变量
+      uids: ""                         # 微信关注者 UID，多个用逗号分隔；建议用 WXPUSHER_UIDS 环境变量
 
     telegram:
       bot_token: ""                   # Telegram Bot Token
