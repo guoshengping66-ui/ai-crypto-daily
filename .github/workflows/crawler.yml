@@ -217,10 +217,10 @@ jobs:
           fi
 
           if [[ "$endpoint" == "https://wxpusher.zjiecode.com/api/send/message" ]]; then
-            response_shape=$(jq -c '{code: (.code // null), data_type: (.data | type), target_count: (if (.data | type) == "array" then (.data | length) else null end), field_names: ([.. | objects | keys[]] | unique), record_field_count: ([.. | objects | select(has("sendRecordId"))] | length)}' <<< "$response")
+            response_shape=$(jq -c '{code: (.code // null), data_type: (.data | type), target_count: (if (.data | type) == "array" then (.data | length) else null end), top_level_record_id_present: has("sendRecordId"), data_item_record_id_flags: (if (.data | type) == "array" then [.data[] | has("sendRecordId")] else [] end)}' <<< "$response")
             echo "WxPusher response shape (values redacted): $response_shape"
 
-            mapfile -t send_record_ids < <(jq -r '[.. | objects | .sendRecordId? // empty] | .[]' <<< "$response")
+            mapfile -t send_record_ids < <(jq -r '[.sendRecordId?, .data[]?.sendRecordId?] | map(select(. != null)) | .[]' <<< "$response")
             if (( ${#send_record_ids[@]} == 0 )); then
               echo "No per-recipient send record was returned; delivery status cannot be checked"
               exit 1
