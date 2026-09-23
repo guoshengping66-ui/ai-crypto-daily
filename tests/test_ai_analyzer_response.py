@@ -7,6 +7,10 @@ from unittest.mock import patch
 
 from trendradar.ai.client import AIClient
 from trendradar.ai.analyzer import AIAnalyzer
+from trendradar.ai.formatter import (
+    render_ai_analysis_html_rich,
+    render_ai_analysis_markdown,
+)
 
 
 class AIAnalyzerResponseTests(unittest.TestCase):
@@ -169,6 +173,68 @@ AI 选题（1/5）
         self.assertTrue(result.success)
         self.assertIn("模型更新", result.core_trends)
         self.assertIn("协议更新", result.sentiment_controversy)
+
+    def test_rss_only_fallback_skips_model_and_selects_five_per_topic(self):
+        self.analyzer.analysis_config = {
+            "PROMPT_FILE": "config/creator_daily_prompt.txt",
+            "RSS_ONLY_FALLBACK": True,
+        }
+        rss_stats = []
+        for group, prefix in (("AI热点", "AI"), ("币圈热点", "BTC")):
+            rss_stats.append(
+                {
+                    "word": group,
+                    "titles": [
+                        {
+                            "title": f"{prefix} topic {index}",
+                            "source_name": "Example Feed",
+                            "time_display": "09-23 08:00",
+                            "summary": "Publisher summary",
+                            "url": f"https://example.com/{prefix.lower()}/{index}",
+                        }
+                        for index in range(6)
+                    ],
+                }
+            )
+        rss_stats[0]["titles"].append(
+            {"title": "AI without URL", "url": "javascript:alert(1)"}
+        )
+
+        result = self.analyzer.analyze([], rss_stats, report_mode="daily")
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.fallback_used)
+        self.assertEqual(result.analyzed_news, 10)
+        self.assertEqual(result.rss_analyzed, 10)
+        self.assertIn("AI RSS 原始候选（5/5", result.core_trends)
+        self.assertIn("币圈 RSS 原始候选（5/5", result.sentiment_controversy)
+        self.assertEqual(result.core_trends.count("原文：https://"), 5)
+        self.assertEqual(result.sentiment_controversy.count("原文：https://"), 5)
+        self.assertNotIn("推文草稿", result.core_trends + result.sentiment_controversy)
+
+    def test_fallback_renderers_disclose_that_content_is_not_ai_generated(self):
+        self.analyzer.analysis_config = {
+            "PROMPT_FILE": "creator_daily_prompt.txt",
+            "RSS_ONLY_FALLBACK": True,
+        }
+        result = self.analyzer.analyze(
+            [],
+            [
+                {
+                    "word": "AI热点",
+                    "titles": [
+                        {
+                            "title": "AI model release",
+                            "url": "https://example.com/model",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        self.assertIn("RSS 候选（非 AI 生成）", render_ai_analysis_markdown(result))
+        self.assertIn("RSS", render_ai_analysis_html_rich(result))
+        self.assertIn("需核实", render_ai_analysis_html_rich(result))
 
 
 class AIClientParameterTests(unittest.TestCase):

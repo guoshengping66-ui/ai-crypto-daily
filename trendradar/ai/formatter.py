@@ -100,14 +100,18 @@ def _render_ai_analysis_markdown_like(
             return f"ℹ️ {result.error}"
         return f"⚠️ AI 分析失败: {result.error}"
 
-    lines = ["**每日 AI × 币圈 X 选题**", ""]
+    fallback = getattr(result, "fallback_used", False)
+    title = "每日 AI × 币圈 RSS 候选（非 AI 生成）" if fallback else "每日 AI × 币圈 X 选题"
+    ai_heading = "AI 原始候选（需核实）" if fallback else "AI 今日选题"
+    crypto_heading = "币圈原始候选（需核实）" if fallback else "币圈今日选题"
+    lines = [f"**{title}**", ""]
 
     if result.core_trends:
-        lines.extend(["**AI 今日选题**", _format_list_content(result.core_trends), ""])
+        lines.extend([f"**{ai_heading}**", _format_list_content(result.core_trends), ""])
 
     if result.sentiment_controversy:
         lines.extend(
-            ["**币圈今日选题**", _format_list_content(result.sentiment_controversy), ""]
+            [f"**{crypto_heading}**", _format_list_content(result.sentiment_controversy), ""]
         )
 
     if result.signals:
@@ -157,17 +161,21 @@ def render_ai_analysis_dingtalk(result: AIAnalysisResult) -> str:
             return f"ℹ️ {result.error}"
         return f"⚠️ AI 分析失败: {result.error}"
 
-    lines = ["### 每日 AI × 币圈 X 选题", ""]
+    fallback = getattr(result, "fallback_used", False)
+    title = "每日 AI × 币圈 RSS 候选（非 AI 生成）" if fallback else "每日 AI × 币圈 X 选题"
+    ai_heading = "AI 原始候选（需核实）" if fallback else "AI 今日选题"
+    crypto_heading = "币圈原始候选（需核实）" if fallback else "币圈今日选题"
+    lines = [f"### {title}", ""]
 
     if result.core_trends:
         lines.extend(
-            ["#### AI 今日选题", _format_list_content(result.core_trends), ""]
+            [f"#### {ai_heading}", _format_list_content(result.core_trends), ""]
         )
 
     if result.sentiment_controversy:
         lines.extend(
             [
-                "#### 币圈今日选题",
+                f"#### {crypto_heading}",
                 _format_list_content(result.sentiment_controversy),
                 "",
             ]
@@ -201,14 +209,18 @@ def render_ai_analysis_plain(result: AIAnalysisResult) -> str:
             return result.error
         return f"AI 分析失败: {result.error}"
 
-    lines = ["【每日 AI × 币圈 X 选题】", ""]
+    fallback = getattr(result, "fallback_used", False)
+    title = "【每日 AI × 币圈 RSS 候选（非 AI 生成）】" if fallback else "【每日 AI × 币圈 X 选题】"
+    ai_heading = "[AI 原始候选（需核实）]" if fallback else "[AI 今日选题]"
+    crypto_heading = "[币圈原始候选（需核实）]" if fallback else "[币圈今日选题]"
+    lines = [title, ""]
 
     if result.core_trends:
-        lines.extend(["[AI 今日选题]", _format_list_content(result.core_trends), ""])
+        lines.extend([ai_heading, _format_list_content(result.core_trends), ""])
 
     if result.sentiment_controversy:
         lines.extend(
-            ["[币圈今日选题]", _format_list_content(result.sentiment_controversy), ""]
+            [crypto_heading, _format_list_content(result.sentiment_controversy), ""]
         )
 
     if result.signals:
@@ -240,13 +252,17 @@ def render_ai_analysis_telegram(result: AIAnalysisResult) -> str:
             return f"ℹ️ {_escape_html(result.error)}"
         return f"⚠️ AI 分析失败: {_escape_html(result.error)}"
 
-    lines = ["<b>每日 AI × 币圈 X 选题</b>", ""]
+    fallback = getattr(result, "fallback_used", False)
+    title = "每日 AI × 币圈 RSS 候选（非 AI 生成）" if fallback else "每日 AI × 币圈 X 选题"
+    ai_heading = "AI 原始候选（需核实）" if fallback else "AI 今日选题"
+    crypto_heading = "币圈原始候选（需核实）" if fallback else "币圈今日选题"
+    lines = [f"<b>{title}</b>", ""]
 
     if result.core_trends:
-        lines.extend(["<b>AI 今日选题</b>", _escape_html(_format_list_content(result.core_trends)), ""])
+        lines.extend([f"<b>{ai_heading}</b>", _escape_html(_format_list_content(result.core_trends)), ""])
 
     if result.sentiment_controversy:
-        lines.extend(["<b>币圈今日选题</b>", _escape_html(_format_list_content(result.sentiment_controversy)), ""])
+        lines.extend([f"<b>{crypto_heading}</b>", _escape_html(_format_list_content(result.sentiment_controversy)), ""])
 
     if result.signals:
         lines.extend(["<b>今日优先发布</b>", _escape_html(_format_list_content(result.signals)), ""])
@@ -298,11 +314,16 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
                     <div class="ai-warning">AI 分析失败: {_escape_html(str(error_msg))}</div>
                 </div>"""
 
-    ai_html = """
+    fallback = getattr(result, "fallback_used", False)
+    title = "每日 AI × 币圈 RSS 候选（非 AI 生成）" if fallback else "每日 AI × 币圈 X 选题"
+    badge = "RSS" if fallback else "AI"
+    ai_heading = "AI 原始候选（需核实）" if fallback else "AI 今日选题"
+    crypto_heading = "币圈原始候选（需核实）" if fallback else "币圈今日选题"
+    ai_html = f"""
                 <div class="ai-section">
                     <div class="ai-section-header">
-                        <div class="ai-section-title">每日 AI × 币圈 X 选题</div>
-                        <span class="ai-section-badge">AI</span>
+                        <div class="ai-section-title">{title}</div>
+                        <span class="ai-section-badge">{badge}</span>
                     </div>
                     <div class="ai-blocks-grid">"""
 
@@ -311,7 +332,7 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
         content_html = _escape_html(content).replace("\n", "<br>")
         ai_html += f"""
                     <div class="ai-block">
-                        <div class="ai-block-title">AI 今日选题</div>
+                        <div class="ai-block-title">{ai_heading}</div>
                         <div class="ai-block-content">{content_html}</div>
                     </div>"""
 
@@ -320,7 +341,7 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
         content_html = _escape_html(content).replace("\n", "<br>")
         ai_html += f"""
                     <div class="ai-block">
-                        <div class="ai-block-title">币圈今日选题</div>
+                        <div class="ai-block-title">{crypto_heading}</div>
                         <div class="ai-block-content">{content_html}</div>
                     </div>"""
 

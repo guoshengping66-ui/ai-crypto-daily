@@ -286,7 +286,10 @@ def split_content_into_batches(
             mode_map = {"daily": "全天汇总", "current": "当前榜单", "incremental": "增量分析"}
             mode_suffix = f" [{mode_map.get(ai_mode_val, ai_mode_val)}]"
 
-        base_header += f"{b_s}AI 分析：{b_e} {ai_display}{mode_suffix}\n"
+        if ai_stats.get("fallback_used", False):
+            base_header += f"{b_s}RSS 候选整理（非 AI 生成）：{b_e} {rss_analyzed} 条\n"
+        else:
+            base_header += f"{b_s}AI 分析：{b_e} {ai_display}{mode_suffix}\n"
 
     # === 空行分隔 ===
     base_header += "\n"

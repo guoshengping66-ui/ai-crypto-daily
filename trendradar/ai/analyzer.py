@@ -10,6 +10,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
+from urllib.parse import urlparse
 
 from trendradar.ai.client import AIClient
 from trendradar.ai.prompt_loader import load_prompt_template
@@ -44,6 +45,7 @@ class AIAnalysisResult:
     ai_mode: str = ""                    # AI 分析使用的模式 (daily/current/incremental)
     include_rss: bool = True             # 是否启用 RSS 分析
     include_standalone: bool = False     # 是否启用独立展示区分析
+    fallback_used: bool = False          # 是否使用无模型 RSS 原始候选模式
 
 
 class PreparedNewsContent(NamedTuple):
@@ -125,6 +127,13 @@ class AIAnalyzer:
         Returns:
             AIAnalysisResult: 分析结果
         """
+
+        if (
+            self.analysis_config.get("RSS_ONLY_FALLBACK", False)
+            and self._is_creator_daily_prompt()
+        ):
+            print("[AI] 使用 RSS 免费兜底模式：不调用 AI 模型")
+            return self._build_creator_rss_fallback(stats, rss_stats, report_mode)
         
         # 打印配置信息方便调试
         model = self.ai_config.get("MODEL", "unknown")
@@ -426,6 +435,118 @@ class AIAnalyzer:
             for index, stat in enumerate(rss_stats)
             if selected[index]
         ]
+
+    @staticmethod
+    def _rss_fallback_category(group_name: str, title: str) -> str:
+        """Return the creator RSS category, preferring its configured group."""
+        group = str(group_name or "").casefold()
+        if any(token in group for token in ("币圈", "加密", "crypto", "bitcoin")):
+            return "crypto"
+        if any(token in group for token in ("ai", "人工智能", "大模型")):
+            return "ai"
+
+        text = str(title or "").casefold()
+        crypto_pattern = r"\bcrypto\b|\bbitcoin\b|\bbtc\b|\beth\b|\bethereum\b|比特币|以太坊|加密货币|稳定币|区块链|web3|defi|代币"
+        ai_pattern = r"\bai\b|\bllm\b|\bopenai\b|\bchatgpt\b|\bclaude\b|\bgemini\b|人工智能|大模型|智能体|机器人"
+        if re.search(crypto_pattern, text, re.IGNORECASE):
+            return "crypto"
+        if re.search(ai_pattern, text, re.IGNORECASE):
+            return "ai"
+        return ""
+
+    @staticmethod
+    def _clean_rss_fallback_text(value: Any, limit: int = 360) -> str:
+        """Flatten publisher-controlled text before placing it in the digest."""
+        text = re.sub(r"<[^>]*>", " ", str(value or ""))
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:limit] + ("…" if len(text) > limit else "")
+
+    def _build_creator_rss_fallback(
+        self,
+        stats: Optional[List[Dict]],
+        rss_stats: Optional[List[Dict]],
+        report_mode: str,
+    ) -> AIAnalysisResult:
+        """Build source-linked RSS candidate cards without calling a model."""
+        selected = {"ai": [], "crypto": []}
+        seen_urls = set()
+        seen_titles = set()
+
+        for stat in rss_stats or []:
+            group_name = stat.get("word", "")
+            for item in stat.get("titles", []):
+                if not isinstance(item, dict):
+                    continue
+                title = self._clean_rss_fallback_text(item.get("title"), 240)
+                url = str(item.get("url") or "").strip()
+                parsed_url = urlparse(url)
+                if not title or parsed_url.scheme not in ("http", "https") or not parsed_url.netloc:
+                    continue
+
+                category = self._rss_fallback_category(group_name, title)
+                if not category or len(selected[category]) >= 5:
+                    continue
+
+                normalized_url = url.rstrip("/").casefold()
+                normalized_title = title.casefold()
+                if normalized_url in seen_urls or normalized_title in seen_titles:
+                    continue
+                seen_urls.add(normalized_url)
+                seen_titles.add(normalized_title)
+
+                selected[category].append(
+                    {
+                        "title": title,
+                        "source": self._clean_rss_fallback_text(
+                            item.get("source_name") or item.get("feed_name") or "RSS 来源", 100
+                        ),
+                        "time": self._clean_rss_fallback_text(item.get("time_display"), 80)
+                        or "RSS 未提供明确时间",
+                        "summary": self._clean_rss_fallback_text(item.get("summary"), 360)
+                        or "RSS 未提供摘要；请打开原文核实。",
+                        "url": url,
+                    }
+                )
+
+        def render_cards(category: str, label: str) -> str:
+            cards = selected[category]
+            lines = [f"{label} RSS 原始候选（{len(cards)}/5；非 AI 生成，发布前请核实）"]
+            if not cards:
+                lines.append("本次没有找到带有效原文链接的候选；请检查 RSS 订阅源和关键词配置。")
+            for index, card in enumerate(cards, 1):
+                lines.extend(
+                    [
+                        f"{index}. {card['title']}",
+                        f"来源：{card['source']}｜时间：{card['time']}",
+                        f"RSS 摘要（未核实）：{card['summary']}",
+                        f"原文：{card['url']}",
+                    ]
+                )
+            return "\n".join(lines)
+
+        ai_count = len(selected["ai"])
+        crypto_count = len(selected["crypto"])
+        rss_count = sum(len(stat.get("titles", [])) for stat in (rss_stats or []))
+        hotlist_count = sum(len(stat.get("titles", [])) for stat in (stats or []))
+        analyzed_count = ai_count + crypto_count
+        return AIAnalysisResult(
+            core_trends=render_cards("ai", "AI"),
+            sentiment_controversy=render_cards("crypto", "币圈"),
+            signals="先核对原文发布时间与关键事实，再选有明确新增信息的一条改写；不要直接转发 RSS 标题或摘要。",
+            rss_insights="以上为 RSS 标题/发布方摘要的机械整理，不代表已核实；优先检查官方公告或论文原文，并确认事件仍在过去 24 小时内。",
+            outlook_strategy="把素材改写成自己的解释：说明发生了什么、影响谁、还有什么未知；币圈内容避免买卖建议和收益承诺。",
+            success=True,
+            total_news=hotlist_count + rss_count,
+            analyzed_news=analyzed_count,
+            max_news_limit=10,
+            hotlist_count=hotlist_count,
+            rss_count=rss_count,
+            hotlist_analyzed=0,
+            rss_analyzed=analyzed_count,
+            ai_mode=report_mode,
+            include_rss=True,
+            fallback_used=True,
+        )
 
     def _call_ai(self, user_prompt: str) -> str:
         """调用 AI API（使用 LiteLLM）"""
