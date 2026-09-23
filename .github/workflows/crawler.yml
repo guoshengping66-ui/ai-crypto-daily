@@ -161,7 +161,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.wxpusher_test == true }}
     runs-on: ubuntu-latest
     steps:
-      - name: Send one secret-safe WxPusher test message
+      - name: Send one secret-safe plain-text WxPusher test message
         env:
           WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
         shell: bash
@@ -174,8 +174,8 @@ jobs:
 
           payload=$(jq -n \
             --arg spt "$WXPUSHER_SPT" \
-            --arg content "TrendRadar 连通性测试：若你能看到此消息，WxPusher 到个人微信的接收链路正常。" \
-            '{spt:$spt, summary:"TrendRadar 连通性测试", content:$content, contentType:3}')
+            --arg content "TrendRadar 纯文本连通性测试。如果收到，请回复或确认。" \
+            '{spt:$spt, summary:"TrendRadar 纯文本测试", content:$content, contentType:1}')
           response=$(curl --silent --show-error --fail-with-body \
             --request POST \
             --header "Content-Type: application/json" \
