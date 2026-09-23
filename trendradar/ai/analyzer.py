@@ -277,6 +277,47 @@ class AIAnalyzer:
                         if retry_value:
                             setattr(result, field, retry_value)
 
+                    still_missing_fields = []
+                    for field in missing_creator_fields:
+                        section = str(getattr(result, field, "") or "")
+                        count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
+                        if count < 3:
+                            still_missing_fields.append(field)
+
+                    if still_missing_fields:
+                        retry_labels = []
+                        for field in still_missing_fields:
+                            section = str(getattr(result, field, "") or "")
+                            count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
+                            retry_labels.append(
+                                f"{required_creator_fields[field]}（{count}/3）"
+                            )
+                        completion_schema = json.dumps(
+                            {field: "请按卡片模板补足3条" for field in still_missing_fields},
+                            ensure_ascii=False,
+                        )
+                        completion_prompt = (
+                            user_prompt
+                            + "
+
+【再次定向补全】以下分区仍不足3条："
+                            + "、".join(retry_labels)
+                            + "。请只返回以下字段的有效JSON对象；每个字段尽量给足3条完整编号卡片，"
+                            + "优先近24小时，不足时扩展到近72小时；较旧事件标注实际日期和【近72小时】。"
+                            + "必须提供候选材料中的真实来源URL，不得编造：
+"
+                            + completion_schema
+                        )
+                        completion_result = self._parse_response(
+                            self._call_ai(completion_prompt)
+                        )
+                        for field in still_missing_fields:
+                            completion_value = str(
+                                getattr(completion_result, field, "") or ""
+                            ).strip()
+                            if completion_value:
+                                setattr(result, field, completion_value)
+
                     remaining_fields = []
                     for field in missing_creator_fields:
                         section = str(getattr(result, field, "") or "")
