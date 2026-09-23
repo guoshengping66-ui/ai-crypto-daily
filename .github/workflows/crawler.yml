@@ -112,37 +112,6 @@ jobs:
           GITHUB_ACTIONS: true
         run: uv run python -m trendradar
 
-  test-wxpusher:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.wxpusher_test == true }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Send one secret-safe WxPusher test message
-        env:
-          WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "$WXPUSHER_SPT" ]]; then
-            echo "WXPUSHER_SPT repository secret is missing"
-            exit 1
-          fi
-
-          payload=$(jq -n \
-            --arg spt "$WXPUSHER_SPT" \
-            --arg content "TrendRadar 连通性测试：若你能看到此消息，WxPusher 到个人微信的接收链路正常。" \
-            '{spt:$spt, summary:"TrendRadar 连通性测试", content:$content, contentType:3}')
-          response=$(curl --silent --show-error --fail-with-body \
-            --request POST \
-            --header "Content-Type: application/json" \
-            --data "$payload" \
-            "https://wxpusher.zjiecode.com/api/send/message/simple-push")
-          code=$(jq -r '.code // empty' <<< "$response")
-          message=$(jq -r '.msg // empty' <<< "$response")
-          echo "WxPusher API response: code=$code, message=$message"
-          if [[ "$code" != "1000" ]]; then
-            exit 1
-          fi
-
       # --------------------------------------------------------------------------------
       # ☁️ CLOUDFLARE PAGES DEPLOY / 部署到 Cloudflare Pages（可选）
       # --------------------------------------------------------------------------------
@@ -187,3 +156,34 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy cloudflare_dist --project-name=${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+
+  test-wxpusher:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.wxpusher_test == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send one secret-safe WxPusher test message
+        env:
+          WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$WXPUSHER_SPT" ]]; then
+            echo "WXPUSHER_SPT repository secret is missing"
+            exit 1
+          fi
+
+          payload=$(jq -n \
+            --arg spt "$WXPUSHER_SPT" \
+            --arg content "TrendRadar 连通性测试：若你能看到此消息，WxPusher 到个人微信的接收链路正常。" \
+            '{spt:$spt, summary:"TrendRadar 连通性测试", content:$content, contentType:3}')
+          response=$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "https://wxpusher.zjiecode.com/api/send/message/simple-push")
+          code=$(jq -r '.code // empty' <<< "$response")
+          message=$(jq -r '.msg // empty' <<< "$response")
+          echo "WxPusher API response: code=$code, message=$message"
+          if [[ "$code" != "1000" ]]; then
+            exit 1
+          fi
