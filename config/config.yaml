@@ -436,7 +436,7 @@ ai_analysis:
                                     # 热榜优先占用配额，RSS 用剩余配额，独立展示区不受此限制
 
   include_rss: true                 # AI 与币圈候选主要来自 RSS
-  rss_only_fallback: true           # 免费模式：按 RSS 原文/摘要整理候选，不请求 AI 模型
+  rss_only_fallback: false          # 使用配置的硅基流动模型生成选题与短帖；免费额度和可用性以平台为准
   include_standalone: false         # 不重复纳入独立榜单
 
   include_rank_timeline: false      # 每天只抓一次，无需排名时间线
