@@ -307,9 +307,7 @@ class AIAnalyzer:
                             + "必须提供候选材料中的真实来源URL，不得编造：
 "
                             + completion_schema
-                        )
-                        completion_result = self._parse_response(
-                            self._call_ai(completion_prompt)
+                        )                            self._call_ai(completion_prompt)
                         )
                         for field in still_missing_fields:
                             completion_value = str(
