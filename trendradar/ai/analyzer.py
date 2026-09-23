@@ -811,18 +811,44 @@ class AIAnalyzer:
 
         # 解析成功，提取字段
         try:
-            result.core_trends = self._content_to_text(data.get("core_trends", ""))
-            result.sentiment_controversy = self._content_to_text(
-                data.get("sentiment_controversy", "")
+            def report_value(*aliases):
+                """兼容模型把日报区块名直接用作 JSON 字段名。"""
+                normalize = lambda value: re.sub(
+                    r"[\s_\-【】\[\]：:（）()]", "", str(value)
+                ).lower()
+                for alias in aliases:
+                    normalized_alias = normalize(alias)
+                    for key, value in data.items():
+                        if normalize(key) == normalized_alias:
+                            if self._content_to_text(value):
+                                return value
+                return ""
+
+            result.core_trends = self._content_to_text(
+                report_value(
+                    "core_trends", "AI选题", "AI今日选题", "AI热点",
+                    "人工智能选题", "人工智能热点", "ai_topics", "ai_news"
+                )
             )
-            result.signals = self._content_to_text(data.get("signals", ""))
-            result.rss_insights = self._content_to_text(data.get("rss_insights", ""))
+            result.sentiment_controversy = self._content_to_text(
+                report_value(
+                    "sentiment_controversy", "币圈选题", "币圈今日选题",
+                    "币圈热点", "加密货币选题", "加密货币热点", "加密热点",
+                    "加密行业选题", "加密行业热点", "crypto_topics", "crypto_news"
+                )
+            )
+            result.signals = self._content_to_text(
+                report_value("signals", "优先发布顺序", "今日优先发布")
+            )
+            result.rss_insights = self._content_to_text(
+                report_value("rss_insights", "核查提醒", "信息核查")
+            )
             result.outlook_strategy = self._content_to_text(
-                data.get("outlook_strategy", "")
+                report_value("outlook_strategy", "运营建议", "账号运营建议")
             )
 
             # 解析独立展示区概括
-            summaries = data.get("standalone_summaries", {})
+            summaries = report_value("standalone_summaries", "独立源点概括") or {}
             if isinstance(summaries, dict):
                 result.standalone_summaries = {
                     str(k): self._content_to_text(v)
@@ -992,6 +1018,21 @@ class AIAnalyzer:
             "outlook_strategy",
             "standalone_summaries",
         }
+        creator_report_keys = {
+            "ai选题", "ai今日选题", "ai热点", "人工智能选题", "人工智能热点",
+            "ai_topics", "ai_news",
+            "币圈选题", "币圈今日选题", "币圈热点", "加密货币选题",
+            "加密货币热点", "加密热点", "加密行业选题", "加密行业热点",
+            "crypto_topics", "crypto_news",
+            "今日优先发布", "优先发布顺序", "信息核查", "核查提醒",
+            "账号运营建议", "运营建议", "独立源点概括",
+        }
+        normalize = lambda value: re.sub(
+            r"[\s_\-【】\[\]：:（）()]", "", str(value)
+        ).lower()
+        recognized_keys = {
+            normalize(key) for key in report_keys | creator_report_keys
+        }
         queue = [data]
         fallback = None
         visited = set()
@@ -1002,10 +1043,13 @@ class AIAnalyzer:
                 continue
             visited.add(id(candidate))
 
-            if report_keys.intersection(candidate):
+            candidate_report_keys = {
+                key for key in candidate if normalize(key) in recognized_keys
+            }
+            if candidate_report_keys:
                 if fallback is None:
                     fallback = candidate
-                for key in report_keys:
+                for key in candidate_report_keys:
                     value = candidate.get(key)
                     if isinstance(value, dict):
                         if any(cls._content_to_text(v) for v in value.values()):
