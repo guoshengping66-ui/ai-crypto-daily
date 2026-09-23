@@ -819,7 +819,8 @@ class AIAnalyzer:
                 for alias in aliases:
                     normalized_alias = normalize(alias)
                     for key, value in data.items():
-                        if normalize(key) == normalized_alias:
+                        normalized_key = normalize(key)
+                        if normalized_key == normalized_alias or normalized_key.startswith(normalized_alias):
                             if self._content_to_text(value):
                                 return value
                 return ""
@@ -838,7 +839,12 @@ class AIAnalyzer:
                 )
             )
             result.signals = self._content_to_text(
-                report_value("signals", "优先发布顺序", "今日优先发布")
+                report_value(
+                    "signals", "优先发布顺序", "今日优先发布", "优先发布",
+                    "今日主推", "今日推荐", "精选选题", "重点选题",
+                    "priority_posts", "priority_topics", "today_priority",
+                    "today_top_3", "top_3", "top3", "top_picks", "publish_order"
+                )
             )
             result.rss_insights = self._content_to_text(
                 report_value("rss_insights", "核查提醒", "信息核查")
@@ -862,6 +868,11 @@ class AIAnalyzer:
                     missing.append("AI 选题")
                 if not result.sentiment_controversy.strip():
                     missing.append("币圈选题")
+                if not result.signals.strip():
+                    print(
+                        "[AI] 未识别优先发布区；模型返回字段名："
+                        + "、".join(str(key)[:60] for key in data.keys())
+                    )
                 if missing:
                     result.error = "模型没有生成必需分区：" + "、".join(missing)
                     print(f"[AI] 日报缺少必需分区: {'、'.join(missing)}")
@@ -1024,8 +1035,11 @@ class AIAnalyzer:
             "币圈选题", "币圈今日选题", "币圈热点", "加密货币选题",
             "加密货币热点", "加密热点", "加密行业选题", "加密行业热点",
             "crypto_topics", "crypto_news",
-            "今日优先发布", "优先发布顺序", "信息核查", "核查提醒",
-            "账号运营建议", "运营建议", "独立源点概括",
+            "今日优先发布", "优先发布顺序", "优先发布", "今日主推",
+            "今日推荐", "精选选题", "重点选题",
+            "priority_posts", "priority_topics", "today_priority",
+            "today_top_3", "top_3", "top3", "top_picks", "publish_order",
+            "信息核查", "核查提醒", "账号运营建议", "运营建议", "独立源点概括",
         }
         normalize = lambda value: re.sub(
             r"[\s_\-【】\[\]：:（）()]", "", str(value)
@@ -1044,7 +1058,9 @@ class AIAnalyzer:
             visited.add(id(candidate))
 
             candidate_report_keys = {
-                key for key in candidate if normalize(key) in recognized_keys
+                key for key in candidate
+                if normalize(key) in recognized_keys
+                or any(normalize(key).startswith(alias) for alias in recognized_keys)
             }
             if candidate_report_keys:
                 if fallback is None:
