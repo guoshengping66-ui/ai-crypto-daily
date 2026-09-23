@@ -231,6 +231,67 @@ class AIAnalyzer:
                     result.core_trends = ""
                     result.error = "AI 返回内容不是有效日报 JSON，自动修复也未成功；请重试或检查模型兼容性"
 
+            # 创作者日报关键分区不完整时，定向补生成一次，避免把残缺报告标成成功。
+            if self._is_creator_daily_prompt():
+                required_creator_fields = {
+                    "core_trends": "AI 选题",
+                    "sentiment_controversy": "币圈选题",
+                    "signals": "今日优先发布",
+                }
+                missing_creator_fields = [
+                    field
+                    for field in required_creator_fields
+                    if not str(getattr(result, field, "") or "").strip()
+                ]
+                if missing_creator_fields:
+                    missing_labels = [
+                        required_creator_fields[field]
+                        for field in missing_creator_fields
+                    ]
+                    print(
+                        "[AI] 创作者日报缺少必需分区，尝试定向补全："
+                        + "、".join(missing_labels)
+                    )
+                    retry_schema = json.dumps(
+                        {field: "请填入对应简体中文内容" for field in missing_creator_fields},
+                        ensure_ascii=False,
+                    )
+                    retry_prompt = (
+                        user_prompt
+                        + "\n\n【补全缺失分区】上一轮没有完整生成必需分区："
+                        + "、".join(missing_labels)
+                        + "。请根据上方同一批候选材料，只返回一个有效 JSON 对象，"
+                        + "且字段名必须与下列示例完全一致，不要省略字段：\n"
+                        + retry_schema
+                        + "\n按主提示词要求筛选事实、给出来源和写作角度；"
+                        + "今日优先发布最多三条，逐条写明优先原因和形式。"
+                    )
+                    retry_response = self._call_ai(retry_prompt)
+                    retry_result = self._parse_response(retry_response)
+                    for field in missing_creator_fields:
+                        retry_value = str(
+                            getattr(retry_result, field, "") or ""
+                        ).strip()
+                        if retry_value:
+                            setattr(result, field, retry_value)
+
+                    remaining_fields = [
+                        required_creator_fields[field]
+                        for field in missing_creator_fields
+                        if not str(getattr(result, field, "") or "").strip()
+                    ]
+                    if remaining_fields:
+                        result.success = False
+                        result.error = (
+                            "AI 日报缺少必需分区，自动补全后仍缺少："
+                            + "、".join(remaining_fields)
+                        )
+                        print(f"[AI] 定向补全失败：{'、'.join(remaining_fields)}")
+                    else:
+                        result.success = True
+                        result.error = ""
+                        print("[AI] 创作者日报缺失分区补全成功")
+
             # 如果配置未启用 RSS 分析，强制清空 AI 返回的 RSS 洞察
             if not self.include_rss:
                 result.rss_insights = ""
