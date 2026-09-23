@@ -7,6 +7,12 @@ on:
     - cron: "37 0 * * *" # 每天北京时间 08:37 生成选题日报
 
   workflow_dispatch:
+    inputs:
+      wxpusher_test:
+        description: "仅向个人微信发送一条短测试消息，不运行日报"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: crawler-${{ github.ref_name }}
@@ -18,6 +24,7 @@ permissions:
 
 jobs:
   crawl:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.wxpusher_test != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -104,6 +111,37 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
         run: uv run python -m trendradar
+
+  test-wxpusher:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.wxpusher_test == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send one secret-safe WxPusher test message
+        env:
+          WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$WXPUSHER_SPT" ]]; then
+            echo "WXPUSHER_SPT repository secret is missing"
+            exit 1
+          fi
+
+          payload=$(jq -n \
+            --arg spt "$WXPUSHER_SPT" \
+            --arg content "TrendRadar 连通性测试：若你能看到此消息，WxPusher 到个人微信的接收链路正常。" \
+            '{spt:$spt, summary:"TrendRadar 连通性测试", content:$content, contentType:3}')
+          response=$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "https://wxpusher.zjiecode.com/api/send/message/simple-push")
+          code=$(jq -r '.code // empty' <<< "$response")
+          message=$(jq -r '.msg // empty' <<< "$response")
+          echo "WxPusher API response: code=$code, message=$message"
+          if [[ "$code" != "1000" ]]; then
+            exit 1
+          fi
 
       # --------------------------------------------------------------------------------
       # ☁️ CLOUDFLARE PAGES DEPLOY / 部署到 Cloudflare Pages（可选）
