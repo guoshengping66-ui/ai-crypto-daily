@@ -215,3 +215,21 @@ jobs:
           if [[ "$code" != "1000" ]]; then
             exit 1
           fi
+
+          if [[ "$endpoint" == "https://wxpusher.zjiecode.com/api/send/message" ]]; then
+            mapfile -t send_record_ids < <(jq -r '.data[]?.sendRecordId // empty' <<< "$response")
+            if (( ${#send_record_ids[@]} == 0 )); then
+              echo "No per-recipient send record was returned; delivery status cannot be checked"
+              exit 1
+            fi
+
+            sleep 3
+            for send_record_id in "${send_record_ids[@]}"; do
+              status_response=$(curl --silent --show-error --fail-with-body \
+                --get \
+                --data-urlencode "sendRecordId=$send_record_id" \
+                "https://wxpusher.zjiecode.com/api/send/query/status")
+              status_report=$(jq -c '{code: (.code // null), statuses: ([paths(scalars) as $p | select($p[-1] == "status") | getpath($p)] | unique)}' <<< "$status_response")
+              echo "WxPusher per-recipient status (code/status only): $status_report"
+            done
+          fi
