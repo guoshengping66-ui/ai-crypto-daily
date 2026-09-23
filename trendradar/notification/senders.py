@@ -1010,8 +1010,7 @@ def _parse_creator_topic_cards(content: str) -> list:
             line = re.sub(r"^X[：:]", "X 草稿：", line)
             line = re.sub(r"^原文[：:]", "来源：", line)
             body.append(line)
-        cards.append({"post_type": post_type, "headline": headline.strip(), "body": "
-".join(body)})
+        cards.append({"post_type": post_type, "headline": headline.strip(), "body": chr(10).join(body)})
     return cards
 
 
@@ -1034,7 +1033,7 @@ def _send_creator_topics_to_bark(
         try:
             response = requests.post(
                 api_endpoint,
-                json={"title": "日报生成不完整", "body": message, "device_key": device_key,
+                json={"title": "日报生成不完整", "markdown": message, "device_key": device_key,
                       "sound": "default", "group": "TrendRadar", "action": "none"},
                 proxies=proxies,
                 timeout=30,
@@ -1056,12 +1055,11 @@ def _send_creator_topics_to_bark(
     for push_index, (category, card, item_index) in enumerate(reversed(ordered), 1):
         headline = card["headline"]
         title = f"{category} {item_index}/3｜{headline}"[:48]
-        body = f"形式：{card['post_type']}
-{card['body']}".strip()
+        body = (f"形式：{card['post_type']}" + chr(10) + card['body']).strip()
         try:
             response = requests.post(
                 api_endpoint,
-                json={"title": title, "body": body, "device_key": device_key,
+                json={"title": title, "markdown": body, "device_key": device_key,
                       "sound": "default", "group": "TrendRadar", "action": "none"},
                 proxies=proxies,
                 timeout=30,
