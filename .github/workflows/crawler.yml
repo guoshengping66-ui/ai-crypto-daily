@@ -8,8 +8,8 @@ on:
 
   workflow_dispatch:
     inputs:
-      wxpusher_test:
-        description: "仅向个人微信发送一条短测试消息，不运行日报"
+      bark_test:
+        description: "仅向 Bark App 发送一条短测试通知，不运行日报"
         required: false
         default: false
         type: boolean
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   crawl:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.wxpusher_test != true }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.bark_test != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -159,82 +159,41 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy cloudflare_dist --project-name=${{ secrets.CLOUDFLARE_PROJECT_NAME }}
 
-  test-wxpusher:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.wxpusher_test == true }}
+  test-bark:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.bark_test == true }}
     runs-on: ubuntu-latest
     steps:
-      - name: Send one secret-safe plain-text WxPusher test message
+      - name: Send one short Bark test notification
         env:
-          WXPUSHER_SPT: ${{ secrets.WXPUSHER_SPT }}
-          WXPUSHER_APP_TOKEN: ${{ secrets.WXPUSHER_APP_TOKEN }}
-          WXPUSHER_UIDS: ${{ secrets.WXPUSHER_UIDS }}
+          BARK_URL: ${{ secrets.BARK_URL }}
         shell: bash
         run: |
           set -euo pipefail
-          content="TrendRadar 纯文本连通性测试。如果收到，请回复或确认。"
-          summary="TrendRadar 纯文本测试"
-
-          if [[ -n "$WXPUSHER_APP_TOKEN" || -n "$WXPUSHER_UIDS" ]]; then
-            if [[ -z "$WXPUSHER_APP_TOKEN" || -z "$WXPUSHER_UIDS" ]]; then
-              echo "Standard WxPusher mode requires both WXPUSHER_APP_TOKEN and WXPUSHER_UIDS"
-              exit 1
-            fi
-            uids_json=$(jq -cn --arg raw "$WXPUSHER_UIDS" \
-              '$raw | split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(length > 0))')
-            if [[ "$uids_json" == "[]" ]]; then
-              echo "WXPUSHER_UIDS contains no usable UID"
-              exit 1
-            fi
-            endpoint="https://wxpusher.zjiecode.com/api/send/message"
-            payload=$(jq -n \
-              --arg appToken "$WXPUSHER_APP_TOKEN" \
-              --argjson uids "$uids_json" \
-              --arg summary "$summary" \
-              --arg content "$content" \
-              '{appToken:$appToken, uids:$uids, summary:$summary, content:$content, contentType:1}')
-          elif [[ -n "$WXPUSHER_SPT" ]]; then
-            endpoint="https://wxpusher.zjiecode.com/api/send/message/simple-push"
-            payload=$(jq -n \
-              --arg spt "$WXPUSHER_SPT" \
-              --arg summary "$summary" \
-              --arg content "$content" \
-              '{spt:$spt, summary:$summary, content:$content, contentType:1}')
-          else
-            echo "No WxPusher credentials are configured"
+          if [[ -z "$BARK_URL" ]]; then
+            echo "BARK_URL repository secret is missing"
             exit 1
           fi
 
-          response=$(curl --silent --show-error --fail-with-body \
+          normalized_url="${BARK_URL%/}"
+          device_key="${normalized_url##*/}"
+          endpoint="${normalized_url%/*}/push"
+          if [[ -z "$device_key" || "$device_key" == "$normalized_url" ]]; then
+            echo "BARK_URL format is invalid; copy the full URL from the Bark app"
+            exit 1
+          fi
+          echo "::add-mask::$device_key"
+
+          payload=$(jq -cn \
+            --arg key "$device_key" \
+            '{device_key:$key, title:"Bark 连通性测试", body:"如果你在 iPhone Bark 通知中看到这条消息，推送已连通。", group:"TrendRadar"}')
+          response=$(curl --silent --show-error --fail-with-body --max-time 30 \
             --request POST \
             --header "Content-Type: application/json" \
             --data "$payload" \
             "$endpoint")
           code=$(jq -r '.code // empty' <<< "$response")
-          message=$(jq -r '.msg // empty' <<< "$response")
-          echo "WxPusher API response: code=$code, message=$message"
-          if [[ "$code" != "1000" ]]; then
+          if [[ "$code" != "200" ]]; then
+            echo "Bark API did not confirm the test push (code=$code)"
             exit 1
           fi
-
-          if [[ "$endpoint" == "https://wxpusher.zjiecode.com/api/send/message" ]]; then
-            response_shape=$(jq -c '{code: (.code // null), data_type: (.data | type), target_count: (if (.data | type) == "array" then (.data | length) else null end), top_level_record_id_present: has("sendRecordId"), data_item_record_id_flags: (if (.data | type) == "array" then [.data[] | has("sendRecordId")] else [] end)}' <<< "$response")
-            echo "WxPusher response shape (values redacted): $response_shape"
-            target_results=$(jq -c '[.data[]? | {code: (.code // null), status_hint: (if ((.status // "") | tostring | contains("未订阅应用")) then "not_subscribed_to_app" elif ((.status // "") | tostring | contains("成功")) then "success" elif .status == null then "unknown" else "other" end), send_record_id_present: (.sendRecordId? != null)}]' <<< "$response")
-            echo "WxPusher recipient results (UIDs, IDs, and detailed messages redacted): $target_results"
-
-            mapfile -t send_record_ids < <(jq -r '[.sendRecordId?, .data[]?.sendRecordId?] | map(select(. != null)) | .[]' <<< "$response")
-            if (( ${#send_record_ids[@]} == 0 )); then
-              echo "No per-recipient send record was returned; see the redacted recipient result above"
-              exit 0
-            fi
-
-            sleep 3
-            for send_record_id in "${send_record_ids[@]}"; do
-              status_response=$(curl --silent --show-error --fail-with-body \
-                --get \
-                --data-urlencode "sendRecordId=$send_record_id" \
-                "https://wxpusher.zjiecode.com/api/send/query/status")
-              status_report=$(jq -c '{code: (.code // null), statuses: ([paths(scalars) as $p | select($p[-1] == "status") | getpath($p)] | unique)}' <<< "$status_response")
-              echo "WxPusher per-recipient status (code/status only): $status_report"
-            done
-          fi
+          echo "Bark accepted the test push; message payload and key were not logged."
