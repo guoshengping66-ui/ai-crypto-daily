@@ -236,7 +236,6 @@ class AIAnalyzer:
                 required_creator_fields = {
                     "core_trends": "AI 选题",
                     "sentiment_controversy": "币圈选题",
-                    "signals": "今日优先发布",
                 }
                 missing_creator_fields = [
                     field
@@ -929,11 +928,7 @@ class AIAnalyzer:
                     missing.append("AI 选题")
                 if not result.sentiment_controversy.strip():
                     missing.append("币圈选题")
-                if not result.signals.strip():
-                    print(
-                        "[AI] 未识别优先发布区；模型返回字段名："
-                        + "、".join(str(key)[:60] for key in data.keys())
-                    )
+
                 if missing:
                     result.error = "模型没有生成必需分区：" + "、".join(missing)
                     print(f"[AI] 日报缺少必需分区: {'、'.join(missing)}")
