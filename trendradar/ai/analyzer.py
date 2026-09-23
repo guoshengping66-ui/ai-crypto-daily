@@ -266,7 +266,7 @@ class AIAnalyzer:
                         + "且字段名必须与下列示例完全一致，不要省略字段：\n"
                         + retry_schema
                         + "\n按主提示词要求筛选事实、给出来源和写作角度；"
-                        + "只补全缺少的分区，每个所需分区尽量给足3条卡片。优先近24小时；素材不足时扩展到近72小时，再不足时选择近7日内有明确新进展的持续事件并标注日期和“持续跟踪”。每条必须有可信来源URL，不足时不得编造。"
+                        + "只补全缺少的分区，每个所需分区尽量给足3条卡片。优先近24小时；素材不足时扩展到近72小时。超过24小时的选题需标注实际日期及“近72小时”，并说明今天仍值得讨论的理由。每条必须有可信来源URL，不足时不得编造。"
                     )
                     retry_response = self._call_ai(retry_prompt)
                     retry_result = self._parse_response(retry_response)
@@ -277,11 +277,14 @@ class AIAnalyzer:
                         if retry_value:
                             setattr(result, field, retry_value)
 
-                    remaining_fields = [
-                        f"{required_creator_fields[field]}（{len(re.findall(r'(?m)^[ \t]*\d+[.)、][ \t]*【', str(getattr(result, field, '') or '')))} / 3）"
-                        for field in missing_creator_fields
-                        if len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", str(getattr(result, field, "") or ""))) < 3
-                    ]
+                    remaining_fields = []
+                    for field in missing_creator_fields:
+                        section = str(getattr(result, field, "") or "")
+                        count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
+                        if count < 3:
+                            remaining_fields.append(
+                                f"{required_creator_fields[field]}（{count}/3）"
+                            )
                     if remaining_fields:
                         result.success = False
                         result.error = (
