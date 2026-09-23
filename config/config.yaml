@@ -434,7 +434,7 @@ ai_analysis:
                                     # follow_report = 跟随 report.mode（默认）
                                     # daily / current / incremental = 强制使用指定模式
 
-  max_news_for_analysis: 36         # 控制模型上下文；创作者日报 RSS 会在各主题分组间轮流取样
+  max_news_for_analysis: 60         # 控制模型上下文；创作者日报 RSS 会在各主题分组间轮流取样
                                     # 热榜优先占用配额，RSS 用剩余配额，独立展示区不受此限制
 
   include_rss: true                 # AI 与币圈候选主要来自 RSS
