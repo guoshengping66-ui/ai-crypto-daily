@@ -980,7 +980,7 @@ def _send_creator_topics_to_bark(
 ) -> bool:
     """Send one well-formatted Bark notification per creator topic."""
     log_prefix = f"Bark{account_label}" if account_label else "Bark"
-    if len(ai_cards) != 3 or len(crypto_cards) != 3:
+    if len(ai_cards) < 3 or len(crypto_cards) < 3:
         message = (
             f"今天的选题卡片不完整：AI {len(ai_cards)}/3，币圈 {len(crypto_cards)}/3。"
             "为避免推送混乱，未发送拆分日报；请检查本次 AI 生成结果。"
@@ -1001,6 +1001,10 @@ def _send_creator_topics_to_bark(
             print(f"{log_prefix}日报不完整提醒发送异常：{exc}")
         return False
 
+    if len(ai_cards) > 3 or len(crypto_cards) > 3:
+        print(f"{log_prefix}筛选结果超额，按排序保留前3条（AI={len(ai_cards)}, 币圈={len(crypto_cards)}）")
+    ai_cards = ai_cards[:3]
+    crypto_cards = crypto_cards[:3]
     ordered = (
         [("AI", card, index) for index, card in enumerate(ai_cards, 1)]
         + [("币圈", card, index) for index, card in enumerate(crypto_cards, 1)]
