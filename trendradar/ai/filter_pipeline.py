@@ -562,6 +562,7 @@ class AIFilterPipeline:
                     "source_name": item.get("source_name", ""),
                     "url": item.get("url", ""),
                     "mobile_url": item.get("mobile_url", ""),
+                    "published_at": first_time if source_type == "rss" else "",
                     "ranks": item.get("ranks", []),
                     "rank_threshold": self._rank_threshold,
                     "count": item.get("count", 1),

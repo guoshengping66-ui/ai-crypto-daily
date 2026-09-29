@@ -1,6 +1,7 @@
 import json
 import io
 import unittest
+from datetime import datetime, timezone
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -179,6 +180,7 @@ AI 选题（1/5）
             "PROMPT_FILE": "config/creator_daily_prompt.txt",
             "RSS_ONLY_FALLBACK": True,
         }
+        self.analyzer.get_time_func = lambda: datetime.now(timezone.utc)
         rss_stats = []
         for group, prefix in (("AI热点", "AI"), ("币圈热点", "BTC")):
             rss_stats.append(
@@ -189,6 +191,7 @@ AI 选题（1/5）
                             "title": f"{prefix} topic {index}",
                             "source_name": "Example Feed",
                             "time_display": "09-23 08:00",
+                            "published_at": datetime.now(timezone.utc).isoformat(),
                             "summary": "Publisher summary",
                             "url": f"https://example.com/{prefix.lower()}/{index}",
                         }
@@ -217,6 +220,7 @@ AI 选题（1/5）
             "PROMPT_FILE": "creator_daily_prompt.txt",
             "RSS_ONLY_FALLBACK": True,
         }
+        self.analyzer.get_time_func = lambda: datetime.now(timezone.utc)
         result = self.analyzer.analyze(
             [],
             [
@@ -225,6 +229,7 @@ AI 选题（1/5）
                     "titles": [
                         {
                             "title": "AI model release",
+                            "published_at": datetime.now(timezone.utc).isoformat(),
                             "url": "https://example.com/model",
                         }
                     ],

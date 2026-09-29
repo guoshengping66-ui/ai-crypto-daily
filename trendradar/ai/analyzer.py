@@ -9,6 +9,7 @@ AI 分析器模块
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from urllib.parse import urlparse
 
@@ -231,20 +232,74 @@ class AIAnalyzer:
                     result.core_trends = ""
                     result.error = "AI 返回内容不是有效日报 JSON，自动修复也未成功；请重试或检查模型兼容性"
 
-            # 创作者日报关键分区不完整时，定向补生成一次，避免把残缺报告标成成功。
+            # 创作者日报：对模型格式错误尝试补全；明确声明24小时内素材不足时接受缺额。
             if self._is_creator_daily_prompt():
                 required_creator_fields = {
                     "core_trends": "AI 选题",
                     "sentiment_controversy": "币圈选题",
                 }
-                creator_card_counts = {}
-                missing_creator_fields = []
-                for field in required_creator_fields:
-                    section = str(getattr(result, field, "") or "")
-                    count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
-                    creator_card_counts[field] = count
-                    if count < 3:
-                        missing_creator_fields.append(field)
+
+                def creator_card_count(section: str) -> int:
+                    return len(
+                        re.findall(
+                            r"(?m)^[ \t]*\d+[.)、][ \t]*(?:\*\*)?【", section
+                        )
+                    )
+
+                def declares_creator_shortage(section: str) -> bool:
+                    lines = str(section or "").splitlines()
+                    if not lines:
+                        return False
+                    return bool(
+                        re.search(r"\b[0-2]\s*/\s*3\b", lines[0])
+                        and re.search(r"不足|缺额|无合格", "\n".join(lines[:3]))
+                    )
+
+                def merge_creator_retry(field: str, retry_value: str) -> None:
+                    retry_value = str(retry_value or "").strip()
+                    if not retry_value:
+                        return
+                    current = str(getattr(result, field, "") or "").strip()
+                    current_count = creator_card_count(current)
+                    retry_count = creator_card_count(retry_value)
+                    if retry_count > current_count or (
+                        retry_count == current_count
+                        and declares_creator_shortage(retry_value)
+                    ):
+                        setattr(result, field, retry_value)
+                    elif (
+                        current_count < 3
+                        and declares_creator_shortage(retry_value)
+                        and not declares_creator_shortage(current)
+                    ):
+                        label = "AI选题" if field == "core_trends" else "Web3选题"
+                        lines = current.splitlines()
+                        shortage_header = (
+                            f"{label}（{current_count}/3；24小时内合格素材不足）"
+                        )
+                        if lines:
+                            lines[0] = shortage_header
+                        else:
+                            lines.append(shortage_header)
+                        lines.insert(
+                            1,
+                            "缺额说明：滚动24小时内仅核实到"
+                            f"{current_count}条合格素材，未使用旧闻补足。",
+                        )
+                        setattr(result, field, "\n".join(lines).strip())
+
+                creator_card_counts = {
+                    field: creator_card_count(str(getattr(result, field, "") or ""))
+                    for field in required_creator_fields
+                }
+                missing_creator_fields = [
+                    field
+                    for field in required_creator_fields
+                    if creator_card_counts[field] < 3
+                    and not declares_creator_shortage(
+                        str(getattr(result, field, "") or "")
+                    )
+                ]
                 if missing_creator_fields:
                     missing_labels = [
                         f"{required_creator_fields[field]}（{creator_card_counts[field]}/3）"
@@ -271,24 +326,22 @@ class AIAnalyzer:
                     retry_response = self._call_ai(retry_prompt)
                     retry_result = self._parse_response(retry_response)
                     for field in missing_creator_fields:
-                        retry_value = str(
-                            getattr(retry_result, field, "") or ""
-                        ).strip()
-                        if retry_value:
-                            setattr(result, field, retry_value)
+                        merge_creator_retry(
+                            field, getattr(retry_result, field, "")
+                        )
 
                     still_missing_fields = []
                     for field in missing_creator_fields:
                         section = str(getattr(result, field, "") or "")
-                        count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
-                        if count < 3:
+                        count = creator_card_count(section)
+                        if count < 3 and not declares_creator_shortage(section):
                             still_missing_fields.append(field)
 
                     if still_missing_fields:
                         retry_labels = []
                         for field in still_missing_fields:
                             section = str(getattr(result, field, "") or "")
-                            count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
+                            count = creator_card_count(section)
                             retry_labels.append(
                                 f"{required_creator_fields[field]}（{count}/3）"
                             )
@@ -309,17 +362,15 @@ class AIAnalyzer:
                             self._call_ai(completion_prompt)
                         )
                         for field in still_missing_fields:
-                            completion_value = str(
-                                getattr(completion_result, field, "") or ""
-                            ).strip()
-                            if completion_value:
-                                setattr(result, field, completion_value)
+                            merge_creator_retry(
+                                field, getattr(completion_result, field, "")
+                            )
 
                     remaining_fields = []
                     for field in missing_creator_fields:
                         section = str(getattr(result, field, "") or "")
-                        count = len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*【", section))
-                        if count < 3:
+                        count = creator_card_count(section)
+                        if count < 3 and not declares_creator_shortage(section):
                             remaining_fields.append(
                                 f"{required_creator_fields[field]}（{count}/3）"
                             )
@@ -333,7 +384,13 @@ class AIAnalyzer:
                     else:
                         result.success = True
                         result.error = ""
-                        print("[AI] 创作者日报缺失分区补全成功")
+                        if any(
+                            creator_card_count(str(getattr(result, field, "") or "")) < 3
+                            for field in required_creator_fields
+                        ):
+                            print("[AI] 创作者日报按24小时规则保留合格选题并注明缺额")
+                        else:
+                            print("[AI] 创作者日报缺失分区补全成功")
 
             # 如果配置未启用 RSS 分析，强制清空 AI 返回的 RSS 洞察
             if not self.include_rss:
@@ -386,6 +443,32 @@ class AIAnalyzer:
         rss_lines = []
         news_count = 0
         rss_count = 0
+        creator_daily = self._is_creator_daily_prompt()
+
+        if creator_daily and rss_stats:
+            current_time = self.get_time_func()
+            fresh_stats = []
+            rejected_rss = 0
+            for stat in rss_stats:
+                fresh_titles = [
+                    item
+                    for item in stat.get("titles", [])
+                    if isinstance(item, dict)
+                    and self._creator_timestamp_is_within_24h(
+                        item.get("published_at"), current_time
+                    )
+                ]
+                rejected_rss += len(stat.get("titles", [])) - len(fresh_titles)
+                if fresh_titles:
+                    fresh_stats.append(
+                        {**stat, "titles": fresh_titles, "count": len(fresh_titles)}
+                    )
+            rss_stats = fresh_stats
+            if rejected_rss:
+                print(
+                    f"[AI] 创作者日报严格24小时校验：剔除 {rejected_rss} 条"
+                    "发布时间缺失、无效或超出窗口的 RSS 候选"
+                )
 
         # 计算总新闻数
         hotlist_total = sum(len(s.get("titles", [])) for s in stats) if stats else 0
@@ -393,12 +476,26 @@ class AIAnalyzer:
 
         # 热榜内容
         if stats:
+            creator_hotlist_limit = (
+                min(12, max(1, self.max_news // 5))
+                if creator_daily and self.max_news > 0
+                else 12 if creator_daily else self.max_news
+            )
             for stat in stats:
+                if creator_daily and news_count >= creator_hotlist_limit:
+                    break
                 word = stat.get("word", "")
                 titles = stat.get("titles", [])
                 if word and titles:
-                    news_lines.append(f"\n**{word}** ({len(titles)}条)")
+                    section_note = (
+                        "热榜讨论线索（上榜时间不等于发布时间）"
+                        if creator_daily
+                        else word
+                    )
+                    news_lines.append(f"\n**{section_note}** ({len(titles)}条)")
                     for t in titles:
+                        if creator_daily and news_count >= creator_hotlist_limit:
+                            break
                         if not isinstance(t, dict):
                             continue
                         title = t.get("title", "")
@@ -429,7 +526,8 @@ class AIAnalyzer:
 
                         appear_count = t.get("count", 1)
 
-                        line += f" | 排名:{rank_str} | 时间:{time_str} | 出现:{appear_count}次"
+                        time_label = "上榜观察时间" if creator_daily else "时间"
+                        line += f" | 排名:{rank_str} | {time_label}:{time_str} | 出现:{appear_count}次"
 
                         # 开启完整时间线时，额外添加轨迹
                         if self.include_rank_timeline:
@@ -444,15 +542,15 @@ class AIAnalyzer:
                         news_lines.append(line)
 
                         news_count += 1
-                        if news_count >= self.max_news:
+                        if not creator_daily and news_count >= self.max_news:
                             break
-                if news_count >= self.max_news:
+                if not creator_daily and news_count >= self.max_news:
                     break
 
         # RSS 内容（仅在启用时构建）
         if self.include_rss and rss_stats:
             remaining = self.max_news - news_count
-            if self._is_creator_daily_prompt():
+            if creator_daily:
                 # RSS groups are ordered by config priority. Round-robin
                 # selection prevents the first domain from consuming the
                 # entire creator-report context limit.
@@ -476,17 +574,20 @@ class AIAnalyzer:
 
                         # 发布时间
                         time_display = t.get("time_display", "")
+                        published_at = str(t.get("published_at") or "").strip()
 
                         # 构建行：[来源] 标题 | 发布时间
                         if source:
                             line = f"- [{source}] {title}"
                         else:
                             line = f"- {title}"
-                        if time_display:
+                        if creator_daily:
+                            line += f" | 原文发布时间:{published_at}"
+                        elif time_display:
                             line += f" | {time_display}"
                         summary = str(t.get("summary") or "").strip()
                         if summary:
-                            summary_limit = 180 if self._is_creator_daily_prompt() else 320
+                            summary_limit = 240 if creator_daily else 320
                             line += f" | 摘要:{summary[:summary_limit]}"
                         source_url = t.get("url")
                         if source_url:
@@ -510,6 +611,24 @@ class AIAnalyzer:
             hotlist_analyzed=news_count,
             rss_analyzed=rss_count,
         )
+
+    @staticmethod
+    def _creator_timestamp_is_within_24h(value: Any, now: datetime) -> bool:
+        """Creator candidates require a parseable original timestamp in the rolling window."""
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            return False
+        try:
+            published_at = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+
+        if published_at.tzinfo is None:
+            published_at = published_at.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        age = now.astimezone(timezone.utc) - published_at.astimezone(timezone.utc)
+        return timedelta(0) <= age <= timedelta(hours=24)
 
     @staticmethod
     def _interleave_rss_groups(
@@ -575,11 +694,19 @@ class AIAnalyzer:
         selected = {"ai": [], "crypto": []}
         seen_urls = set()
         seen_titles = set()
+        current_time = getattr(
+            self, "get_time_func", lambda: datetime.now(timezone.utc)
+        )()
 
         for stat in rss_stats or []:
             group_name = stat.get("word", "")
             for item in stat.get("titles", []):
                 if not isinstance(item, dict):
+                    continue
+                published_at = item.get("published_at")
+                if not self._creator_timestamp_is_within_24h(
+                    published_at, current_time
+                ):
                     continue
                 title = self._clean_rss_fallback_text(item.get("title"), 240)
                 url = str(item.get("url") or "").strip()
@@ -605,7 +732,7 @@ class AIAnalyzer:
                             item.get("source_name") or item.get("feed_name") or "RSS 来源", 100
                         ),
                         "time": self._clean_rss_fallback_text(item.get("time_display"), 80)
-                        or "RSS 未提供明确时间",
+                        or self._clean_rss_fallback_text(published_at, 80),
                         "summary": self._clean_rss_fallback_text(item.get("summary"), 360)
                         or "RSS 未提供摘要；请打开原文核实。",
                         "url": url,

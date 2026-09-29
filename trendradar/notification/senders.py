@@ -945,7 +945,9 @@ def send_to_ntfy(
 def _parse_creator_topic_cards(content: str) -> list:
     """Parse numbered creator-daily items without splitting arbitrary report text."""
     text = str(content or "").strip()
-    matches = list(re.finditer(r"(?m)^[ \t]*(\d+)[.)、][ \t]*", text))
+    matches = list(
+        re.finditer(r"(?m)^[ \t]*\d+[.)、][ \t]*(?=(?:\*\*)?【)", text)
+    )
     cards = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
@@ -980,27 +982,6 @@ def _send_creator_topics_to_bark(
 ) -> bool:
     """Send one well-formatted Bark notification per creator topic."""
     log_prefix = f"Bark{account_label}" if account_label else "Bark"
-    if len(ai_cards) < 3 or len(crypto_cards) < 3:
-        message = (
-            f"今天的选题卡片不完整：AI {len(ai_cards)}/3，币圈 {len(crypto_cards)}/3。"
-            "为避免推送混乱，未发送拆分日报；请检查本次 AI 生成结果。"
-        )
-        try:
-            response = requests.post(
-                api_endpoint,
-                json={"title": "日报生成不完整", "markdown": message, "device_key": device_key,
-                      "sound": "default", "group": "TrendRadar", "action": "none"},
-                proxies=proxies,
-                timeout=30,
-            )
-            if response.status_code == 200 and response.json().get("code") == 200:
-                print(f"{log_prefix}日报不完整提醒已发送（AI={len(ai_cards)}, 币圈={len(crypto_cards)}）")
-            else:
-                print(f"{log_prefix}日报不完整提醒发送失败，状态码：{response.status_code}")
-        except Exception as exc:
-            print(f"{log_prefix}日报不完整提醒发送异常：{exc}")
-        return False
-
     if len(ai_cards) > 3 or len(crypto_cards) > 3:
         print(f"{log_prefix}筛选结果超额，按排序保留前3条（AI={len(ai_cards)}, 币圈={len(crypto_cards)}）")
     ai_cards = ai_cards[:3]
@@ -1010,6 +991,12 @@ def _send_creator_topics_to_bark(
         + [("币圈", card, index) for index, card in enumerate(crypto_cards, 1)]
     )
     success_count = 0
+    shortage_parts = []
+    if len(ai_cards) < 3:
+        shortage_parts.append(f"AI {len(ai_cards)}/3")
+    if len(crypto_cards) < 3:
+        shortage_parts.append(f"Web3/币圈 {len(crypto_cards)}/3")
+
     # Bark 按最新消息在前展示，倒序发送以便打开后从第 1 条开始阅读。
     for push_index, (category, card, item_index) in enumerate(reversed(ordered), 1):
         headline = card["headline"]
@@ -1026,7 +1013,10 @@ def _send_creator_topics_to_bark(
             result = response.json() if response.status_code == 200 else {}
             if response.status_code == 200 and result.get("code") == 200:
                 success_count += 1
-                print(f"{log_prefix}选题推送成功 {category} {item_index}/3（{push_index}/6）")
+                print(
+                    f"{log_prefix}选题推送成功 {category} {item_index}/3"
+                    f"（{push_index}/{len(ordered)}）"
+                )
             else:
                 print(
                     f"{log_prefix}选题推送失败 {category} {item_index}/3，"
@@ -1037,8 +1027,42 @@ def _send_creator_topics_to_bark(
         if push_index < len(ordered):
             time.sleep(batch_interval)
 
-    print(f"{log_prefix}六条选题推送完成：成功 {success_count}/6（AI=3，币圈=3）")
-    return success_count == 6
+    shortage_sent = True
+    if shortage_parts:
+        message = (
+            "严格限定最近24小时且只推送有明确发布时间、来源和新进展的内容。\n"
+            f"本次合格选题：AI {len(ai_cards)}/3，Web3/币圈 {len(crypto_cards)}/3。\n"
+            "未使用旧闻或无来源内容补足。"
+        )
+        try:
+            response = requests.post(
+                api_endpoint,
+                json={
+                    "title": "今日选题有缺额",
+                    "markdown": message,
+                    "device_key": device_key,
+                    "sound": "default",
+                    "group": "TrendRadar",
+                    "action": "none",
+                },
+                proxies=proxies,
+                timeout=30,
+            )
+            result = response.json() if response.status_code == 200 else {}
+            shortage_sent = response.status_code == 200 and result.get("code") == 200
+            if shortage_sent:
+                print(f"{log_prefix}24小时合格选题缺额提醒已发送：{'、'.join(shortage_parts)}")
+            else:
+                print(f"{log_prefix}选题缺额提醒发送失败，HTTP {response.status_code}")
+        except Exception as exc:
+            shortage_sent = False
+            print(f"{log_prefix}选题缺额提醒发送异常：{exc}")
+
+    print(
+        f"{log_prefix}选题推送完成：成功 {success_count}/{len(ordered)} 张卡片"
+        f"（AI={len(ai_cards)}/3，Web3/币圈={len(crypto_cards)}/3）"
+    )
+    return success_count == len(ordered) and shortage_sent
 
 def send_to_bark(
     bark_url: str,
@@ -1104,7 +1128,11 @@ def send_to_bark(
     if ai_analysis:
         ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
         crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
-        if (ai_section.startswith("AI选题") or crypto_section.startswith("币圈选题") or report_type == "全天汇总"):
+        if (
+            ai_section.startswith("AI选题")
+            or crypto_section.startswith(("币圈选题", "Web3选题"))
+            or report_type == "全天汇总"
+        ):
             ai_cards = _parse_creator_topic_cards(ai_section)
             crypto_cards = _parse_creator_topic_cards(crypto_section)
             return _send_creator_topics_to_bark(
