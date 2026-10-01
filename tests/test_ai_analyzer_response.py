@@ -175,7 +175,7 @@ AI 选题（1/5）
         self.assertIn("模型更新", result.core_trends)
         self.assertIn("协议更新", result.sentiment_controversy)
 
-    def test_rss_only_fallback_skips_model_and_selects_five_per_topic(self):
+    def test_rss_only_fallback_skips_model_and_selects_three_per_topic(self):
         self.analyzer.analysis_config = {
             "PROMPT_FILE": "config/creator_daily_prompt.txt",
             "RSS_ONLY_FALLBACK": True,
@@ -207,12 +207,12 @@ AI 选题（1/5）
 
         self.assertTrue(result.success)
         self.assertTrue(result.fallback_used)
-        self.assertEqual(result.analyzed_news, 10)
-        self.assertEqual(result.rss_analyzed, 10)
-        self.assertIn("AI RSS 原始候选（5/5", result.core_trends)
-        self.assertIn("币圈 RSS 原始候选（5/5", result.sentiment_controversy)
-        self.assertEqual(result.core_trends.count("原文：https://"), 5)
-        self.assertEqual(result.sentiment_controversy.count("原文：https://"), 5)
+        self.assertEqual(result.analyzed_news, 6)
+        self.assertEqual(result.rss_analyzed, 6)
+        self.assertIn("AI热点（3/3", result.core_trends)
+        self.assertIn("Web3热点（3/3", result.sentiment_controversy)
+        self.assertEqual(result.core_trends.count("来源："), 3)
+        self.assertEqual(result.sentiment_controversy.count("来源："), 3)
         self.assertNotIn("推文草稿", result.core_trends + result.sentiment_controversy)
 
     def test_fallback_renderers_disclose_that_content_is_not_ai_generated(self):
@@ -237,9 +237,9 @@ AI 选题（1/5）
             ],
         )
 
-        self.assertIn("RSS 候选（非 AI 生成）", render_ai_analysis_markdown(result))
+        self.assertIn("简述（RSS摘要）", render_ai_analysis_markdown(result))
         self.assertIn("RSS", render_ai_analysis_html_rich(result))
-        self.assertIn("需核实", render_ai_analysis_html_rich(result))
+        self.assertIn("AI model release", render_ai_analysis_html_rich(result))
 
 
 class AIClientParameterTests(unittest.TestCase):

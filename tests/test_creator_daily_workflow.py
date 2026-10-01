@@ -1,6 +1,7 @@
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -12,6 +13,32 @@ from trendradar.notification.senders import (
 
 
 class CreatorDailyWorkflowTests(unittest.TestCase):
+    def test_prompt_only_requests_ai_and_web3_hotspot_cards(self):
+        prompt = (
+            Path(__file__).resolve().parents[1]
+            .joinpath("config", "creator_daily_prompt.txt")
+            .read_text(encoding="utf-8")
+        )
+
+        self.assertIn("最多3条 AI 和最多3条 Web3 热点", prompt)
+        self.assertIn("滚动24小时内", prompt)
+        self.assertIn("简述：一句话", prompt)
+        json_example = prompt.split("JSON 格式：\n", 1)[1].split(
+            "\n\n只返回 JSON", 1
+        )[0]
+        self.assertEqual(
+            set(json.loads(json_example)),
+            {
+                "core_trends",
+                "sentiment_controversy",
+                "signals",
+                "rss_insights",
+                "outlook_strategy",
+            },
+        )
+        for unwanted in ("X中文稿：", "X英文稿：", "课程素材：", "适合账号："):
+            self.assertNotIn(unwanted, prompt)
+
     def test_parser_keeps_numbered_howto_steps_inside_one_card(self):
         cards = _parse_creator_topic_cards(
             """AI选题（1/3）
@@ -200,7 +227,7 @@ X中文稿：可以试试这个变化。
         self.assertIn("AI话题一", result.core_trends)
         self.assertEqual(analyzer._call_ai.call_count, 1)
 
-    def test_retry_shortage_is_merged_into_the_section_header(self):
+    def test_retry_accepts_actual_partial_count_without_shortage_note(self):
         analyzer = AIAnalyzer.__new__(AIAnalyzer)
         analyzer.analysis_config = {
             "PROMPT_FILE": "config/creator_daily_prompt.txt",
@@ -249,8 +276,7 @@ X中文稿：可以试试这个变化。
                     "2. 【观点】AI话题二\n原文：https://example.com/ai-2"
                 ),
                 response(
-                    "AI选题（2/3；24小时内合格素材不足）\n"
-                    "未发现第三条符合条件的来源。\n"
+                    "AI热点（2/3）\n"
                     "1. 【实测】AI话题一\n原文：https://example.com/ai-1\n"
                     "2. 【观点】AI话题二\n原文：https://example.com/ai-2"
                 ),
@@ -260,7 +286,8 @@ X中文稿：可以试试这个变化。
         result = analyzer.analyze([])
 
         self.assertTrue(result.success, result.error)
-        self.assertIn("AI选题（2/3；24小时内合格素材不足）", result.core_trends)
+        self.assertIn("AI热点（2/3）", result.core_trends)
+        self.assertNotIn("缺额说明", result.core_trends)
         self.assertEqual(analyzer._call_ai.call_count, 2)
 
     @staticmethod
@@ -270,7 +297,7 @@ X中文稿：可以试试这个变化。
             json=lambda: {"code": 200},
         )
 
-    def test_partial_valid_cards_are_sent_with_a_shortage_notice(self):
+    def test_partial_valid_cards_send_only_hotspot_messages(self):
         ai_cards = [
             {"post_type": "实测", "headline": f"AI {i}", "body": "内容"}
             for i in range(1, 3)
@@ -296,12 +323,11 @@ X中文稿：可以试试这个变化。
             )
 
         self.assertTrue(success)
-        self.assertEqual(post.call_count, 4)
-        self.assertEqual(
-            post.call_args.kwargs["json"]["title"], "今日选题有缺额"
-        )
-        self.assertIn("AI 2/3", post.call_args.kwargs["json"]["markdown"])
-        self.assertIn("Web3/币圈 1/3", post.call_args.kwargs["json"]["markdown"])
+        self.assertEqual(post.call_count, 3)
+        payloads = [call.kwargs["json"] for call in post.call_args_list]
+        self.assertTrue(all("热点" in payload["title"] for payload in payloads))
+        self.assertTrue(all(payload["markdown"] == "内容" for payload in payloads))
+        self.assertFalse(any("缺额" in payload["title"] for payload in payloads))
 
 
 if __name__ == "__main__":

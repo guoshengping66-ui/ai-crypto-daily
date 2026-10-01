@@ -232,11 +232,11 @@ class AIAnalyzer:
                     result.core_trends = ""
                     result.error = "AI 返回内容不是有效日报 JSON，自动修复也未成功；请重试或检查模型兼容性"
 
-            # 创作者日报：对模型格式错误尝试补全；明确声明24小时内素材不足时接受缺额。
+            # 创作者日报：允许真实的不足3条结果，避免为凑数反复要求模型编新闻。
             if self._is_creator_daily_prompt():
                 required_creator_fields = {
-                    "core_trends": "AI 选题",
-                    "sentiment_controversy": "币圈选题",
+                    "core_trends": "AI 热点",
+                    "sentiment_controversy": "Web3 热点",
                 }
 
                 def creator_card_count(section: str) -> int:
@@ -246,13 +246,14 @@ class AIAnalyzer:
                         )
                     )
 
-                def declares_creator_shortage(section: str) -> bool:
+                def declares_creator_partial(section: str) -> bool:
                     lines = str(section or "").splitlines()
                     if not lines:
                         return False
+                    declared_count = re.search(r"\b([0-2])\s*/\s*3\b", lines[0])
                     return bool(
-                        re.search(r"\b[0-2]\s*/\s*3\b", lines[0])
-                        and re.search(r"不足|缺额|无合格", "\n".join(lines[:3]))
+                        declared_count
+                        and int(declared_count.group(1)) == creator_card_count(section)
                     )
 
                 def merge_creator_retry(field: str, retry_value: str) -> None:
@@ -264,28 +265,21 @@ class AIAnalyzer:
                     retry_count = creator_card_count(retry_value)
                     if retry_count > current_count or (
                         retry_count == current_count
-                        and declares_creator_shortage(retry_value)
+                        and declares_creator_partial(retry_value)
                     ):
                         setattr(result, field, retry_value)
                     elif (
                         current_count < 3
-                        and declares_creator_shortage(retry_value)
-                        and not declares_creator_shortage(current)
+                        and declares_creator_partial(retry_value)
+                        and not declares_creator_partial(current)
                     ):
-                        label = "AI选题" if field == "core_trends" else "Web3选题"
+                        label = "AI热点" if field == "core_trends" else "Web3热点"
                         lines = current.splitlines()
-                        shortage_header = (
-                            f"{label}（{current_count}/3；24小时内合格素材不足）"
-                        )
+                        partial_header = f"{label}（{current_count}/3）"
                         if lines:
-                            lines[0] = shortage_header
+                            lines[0] = partial_header
                         else:
-                            lines.append(shortage_header)
-                        lines.insert(
-                            1,
-                            "缺额说明：滚动24小时内仅核实到"
-                            f"{current_count}条合格素材，未使用旧闻补足。",
-                        )
+                            lines.append(partial_header)
                         setattr(result, field, "\n".join(lines).strip())
 
                 creator_card_counts = {
@@ -296,7 +290,7 @@ class AIAnalyzer:
                     field
                     for field in required_creator_fields
                     if creator_card_counts[field] < 3
-                    and not declares_creator_shortage(
+                    and not declares_creator_partial(
                         str(getattr(result, field, "") or "")
                     )
                 ]
@@ -310,7 +304,7 @@ class AIAnalyzer:
                         + "、".join(missing_labels)
                     )
                     retry_schema = json.dumps(
-                        {field: "请填入对应简体中文内容" for field in missing_creator_fields},
+                        {field: "请返回简洁热点卡片" for field in missing_creator_fields},
                         ensure_ascii=False,
                     )
                     retry_prompt = (
@@ -320,8 +314,9 @@ class AIAnalyzer:
                         + "。请根据上方同一批候选材料，只返回一个有效 JSON 对象，"
                         + "且字段名必须与下列示例完全一致，不要省略字段：\n"
                         + retry_schema
-                        + "\n按主提示词要求筛选事实、给出来源和写作角度；"
-                        + "只补全缺少的分区，每个所需分区最多给出最近24小时内有明确发布时间和事实依据的卡片；不足3条时如实注明数量，不得使用24小时以外的候选。每条必须有可信来源URL，不得编造。"
+                        + "\n只按主提示词筛选并输出热点卡片，不写文章、帖子或运营建议。"
+                        + "每个所需分区最多3条，符合条件有几条就写几条；标题数量必须与卡片数一致。"
+                        + "只使用滚动24小时内有明确原文发布时间和来源URL的候选，不得编造或用旧闻补数。"
                     )
                     retry_response = self._call_ai(retry_prompt)
                     retry_result = self._parse_response(retry_response)
@@ -334,7 +329,7 @@ class AIAnalyzer:
                     for field in missing_creator_fields:
                         section = str(getattr(result, field, "") or "")
                         count = creator_card_count(section)
-                        if count < 3 and not declares_creator_shortage(section):
+                        if count < 3 and not declares_creator_partial(section):
                             still_missing_fields.append(field)
 
                     if still_missing_fields:
@@ -346,16 +341,19 @@ class AIAnalyzer:
                                 f"{required_creator_fields[field]}（{count}/3）"
                             )
                         completion_schema = json.dumps(
-                            {field: "请按卡片模板补足3条" for field in still_missing_fields},
+                            {
+                                field: "请仅返回符合条件的热点；不足3条就按实际数量"
+                                for field in still_missing_fields
+                            },
                             ensure_ascii=False,
                         )
                         completion_prompt = (
                             user_prompt
                             + "\n\n【再次定向补全】以下分区仍不足3条："
                             + "、".join(retry_labels)
-                            + "。请只返回以下字段的有效JSON对象；每个字段尽量给足3条完整编号卡片，"
-                            + "只允许使用采集时间前滚动24小时内发布的候选；不足3条时注明缺额，不得扩展时间范围。"
-                            + "必须提供候选材料中的真实来源URL，不得编造：\n"
+                            + "。请只返回以下字段的有效JSON对象；每个字段最多3条，符合条件有几条就写几条，"
+                            + "标题数量必须与卡片数一致。只用滚动24小时内有明确原文时间与来源URL的候选，"
+                            + "不得编造或用旧闻补数：\n"
                             + completion_schema
                         )
                         completion_result = self._parse_response(
@@ -370,7 +368,7 @@ class AIAnalyzer:
                     for field in missing_creator_fields:
                         section = str(getattr(result, field, "") or "")
                         count = creator_card_count(section)
-                        if count < 3 and not declares_creator_shortage(section):
+                        if count < 3 and not declares_creator_partial(section):
                             remaining_fields.append(
                                 f"{required_creator_fields[field]}（{count}/3）"
                             )
@@ -388,7 +386,7 @@ class AIAnalyzer:
                             creator_card_count(str(getattr(result, field, "") or "")) < 3
                             for field in required_creator_fields
                         ):
-                            print("[AI] 创作者日报按24小时规则保留合格选题并注明缺额")
+                            print("[AI] 创作者日报按24小时规则保留实际合格热点")
                         else:
                             print("[AI] 创作者日报缺失分区补全成功")
 
@@ -663,7 +661,7 @@ class AIAnalyzer:
     def _rss_fallback_category(group_name: str, title: str) -> str:
         """Return the creator RSS category, preferring its configured group."""
         group = str(group_name or "").casefold()
-        if any(token in group for token in ("币圈", "加密", "crypto", "bitcoin")):
+        if any(token in group for token in ("币圈", "加密", "crypto", "bitcoin", "web3")):
             return "crypto"
         if any(token in group for token in ("ai", "人工智能", "大模型")):
             return "ai"
@@ -715,7 +713,7 @@ class AIAnalyzer:
                     continue
 
                 category = self._rss_fallback_category(group_name, title)
-                if not category or len(selected[category]) >= 5:
+                if not category or len(selected[category]) >= 3:
                     continue
 
                 normalized_url = url.rstrip("/").casefold()
@@ -733,7 +731,7 @@ class AIAnalyzer:
                         ),
                         "time": self._clean_rss_fallback_text(item.get("time_display"), 80)
                         or self._clean_rss_fallback_text(published_at, 80),
-                        "summary": self._clean_rss_fallback_text(item.get("summary"), 360)
+                        "summary": self._clean_rss_fallback_text(item.get("summary"), 200)
                         or "RSS 未提供摘要；请打开原文核实。",
                         "url": url,
                     }
@@ -741,16 +739,14 @@ class AIAnalyzer:
 
         def render_cards(category: str, label: str) -> str:
             cards = selected[category]
-            lines = [f"{label} RSS 原始候选（{len(cards)}/5；非 AI 生成，发布前请核实）"]
-            if not cards:
-                lines.append("本次没有找到带有效原文链接的候选；请检查 RSS 订阅源和关键词配置。")
+            lines = [f"{label}热点（{len(cards)}/3）"]
             for index, card in enumerate(cards, 1):
                 lines.extend(
                     [
-                        f"{index}. {card['title']}",
-                        f"来源：{card['source']}｜时间：{card['time']}",
-                        f"RSS 摘要（未核实）：{card['summary']}",
-                        f"原文：{card['url']}",
+                        f"{index}. 【热点】{card['title']}",
+                        f"简述（RSS摘要）：{card['summary']}",
+                        f"时间：{card['time']}",
+                        f"来源：{card['source']}｜{card['url']}",
                     ]
                 )
             return "\n".join(lines)
@@ -762,10 +758,10 @@ class AIAnalyzer:
         analyzed_count = ai_count + crypto_count
         return AIAnalysisResult(
             core_trends=render_cards("ai", "AI"),
-            sentiment_controversy=render_cards("crypto", "币圈"),
-            signals="先核对原文发布时间与关键事实，再选有明确新增信息的一条改写；不要直接转发 RSS 标题或摘要。",
-            rss_insights="以上为 RSS 标题/发布方摘要的机械整理，不代表已核实；优先检查官方公告或论文原文，并确认事件仍在过去 24 小时内。",
-            outlook_strategy="把素材改写成自己的解释：说明发生了什么、影响谁、还有什么未知；币圈内容避免买卖建议和收益承诺。",
+            sentiment_controversy=render_cards("crypto", "Web3"),
+            signals="",
+            rss_insights="",
+            outlook_strategy="",
             success=True,
             total_news=hotlist_count + rss_count,
             analyzed_news=analyzed_count,

@@ -980,7 +980,7 @@ def _send_creator_topics_to_bark(
     account_label: str = "",
     batch_interval: float = 1.0,
 ) -> bool:
-    """Send one well-formatted Bark notification per creator topic."""
+    """Send one concise Bark notification per selected hotspot."""
     log_prefix = f"Bark{account_label}" if account_label else "Bark"
     if len(ai_cards) > 3 or len(crypto_cards) > 3:
         print(f"{log_prefix}筛选结果超额，按排序保留前3条（AI={len(ai_cards)}, 币圈={len(crypto_cards)}）")
@@ -988,20 +988,15 @@ def _send_creator_topics_to_bark(
     crypto_cards = crypto_cards[:3]
     ordered = (
         [("AI", card, index) for index, card in enumerate(ai_cards, 1)]
-        + [("币圈", card, index) for index, card in enumerate(crypto_cards, 1)]
+        + [("Web3", card, index) for index, card in enumerate(crypto_cards, 1)]
     )
     success_count = 0
-    shortage_parts = []
-    if len(ai_cards) < 3:
-        shortage_parts.append(f"AI {len(ai_cards)}/3")
-    if len(crypto_cards) < 3:
-        shortage_parts.append(f"Web3/币圈 {len(crypto_cards)}/3")
 
     # Bark 按最新消息在前展示，倒序发送以便打开后从第 1 条开始阅读。
     for push_index, (category, card, item_index) in enumerate(reversed(ordered), 1):
         headline = card["headline"]
-        title = f"{category} {item_index}/3｜{headline}"[:48]
-        body = (f"形式：{card['post_type']}" + chr(10) + card['body']).strip()
+        title = f"{category}热点 {item_index}/3｜{headline}"[:48]
+        body = str(card.get("body") or "").strip()
         try:
             response = requests.post(
                 api_endpoint,
@@ -1027,42 +1022,11 @@ def _send_creator_topics_to_bark(
         if push_index < len(ordered):
             time.sleep(batch_interval)
 
-    shortage_sent = True
-    if shortage_parts:
-        message = (
-            "严格限定最近24小时且只推送有明确发布时间、来源和新进展的内容。\n"
-            f"本次合格选题：AI {len(ai_cards)}/3，Web3/币圈 {len(crypto_cards)}/3。\n"
-            "未使用旧闻或无来源内容补足。"
-        )
-        try:
-            response = requests.post(
-                api_endpoint,
-                json={
-                    "title": "今日选题有缺额",
-                    "markdown": message,
-                    "device_key": device_key,
-                    "sound": "default",
-                    "group": "TrendRadar",
-                    "action": "none",
-                },
-                proxies=proxies,
-                timeout=30,
-            )
-            result = response.json() if response.status_code == 200 else {}
-            shortage_sent = response.status_code == 200 and result.get("code") == 200
-            if shortage_sent:
-                print(f"{log_prefix}24小时合格选题缺额提醒已发送：{'、'.join(shortage_parts)}")
-            else:
-                print(f"{log_prefix}选题缺额提醒发送失败，HTTP {response.status_code}")
-        except Exception as exc:
-            shortage_sent = False
-            print(f"{log_prefix}选题缺额提醒发送异常：{exc}")
-
     print(
-        f"{log_prefix}选题推送完成：成功 {success_count}/{len(ordered)} 张卡片"
-        f"（AI={len(ai_cards)}/3，Web3/币圈={len(crypto_cards)}/3）"
+        f"{log_prefix}热点推送完成：成功 {success_count}/{len(ordered)} 条"
+        f"（AI={len(ai_cards)}，Web3={len(crypto_cards)}）"
     )
-    return success_count == len(ordered) and shortage_sent
+    return bool(ordered) and success_count == len(ordered)
 
 def send_to_bark(
     bark_url: str,
@@ -1129,8 +1093,8 @@ def send_to_bark(
         ai_section = str(getattr(ai_analysis, "core_trends", "") or "").lstrip()
         crypto_section = str(getattr(ai_analysis, "sentiment_controversy", "") or "").lstrip()
         if (
-            ai_section.startswith("AI选题")
-            or crypto_section.startswith(("币圈选题", "Web3选题"))
+            ai_section.startswith(("AI选题", "AI热点"))
+            or crypto_section.startswith(("币圈选题", "Web3选题", "Web3热点"))
             or report_type == "全天汇总"
         ):
             ai_cards = _parse_creator_topic_cards(ai_section)
