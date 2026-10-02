@@ -9,6 +9,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -221,6 +222,51 @@ def fetch_hn_signals(now, timeout=12):
     return signals
 
 
+def fetch_farcaster_signals(now, api_key, timeout=12):
+    """Read Neynar's public 24-hour trending Farcaster feed when configured."""
+    if not api_key:
+        return []
+    try:
+        response = requests.get(
+            "https://api.neynar.com/v2/farcaster/feed/trending/",
+            params={"time_window": "24h", "limit": 100},
+            headers={"x-api-key": api_key, "User-Agent": "TrendRadar daily topic reader"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError, TypeError):
+        print("[选题] Farcaster趋势信号暂时不可用，继续使用其他公开热度依据")
+        return []
+
+    signals = []
+    result = payload.get("result") or {}
+    casts = payload.get("casts", []) or result.get("casts", [])
+    for cast in casts:
+        created = timestamp(cast.get("timestamp"))
+        if not created or not timedelta(0) <= now - created <= timedelta(hours=24):
+            continue
+        reactions = cast.get("reactions") or {}
+        likes = max(0, int(reactions.get("likes_count") or 0))
+        recasts = max(0, int(reactions.get("recasts_count") or 0))
+        replies = max(0, int((cast.get("replies") or {}).get("count") or 0))
+        if likes + recasts + replies < 5:
+            continue
+        embeds = cast.get("embeds") or []
+        linked_url = next((e.get("url") for e in embeds if isinstance(e, dict) and e.get("url")), "")
+        username = clean((cast.get("author") or {}).get("username"), 80)
+        cast_hash = clean(cast.get("hash"), 100)
+        discussion_url = f"https://farcaster.xyz/{username}/{cast_hash}" if username and cast_hash else ""
+        signals.append({
+            "platform": "Farcaster", "title": clean(cast.get("text"), 500),
+            "url": linked_url, "points": likes + recasts, "likes": likes,
+            "recasts": recasts, "comments": replies, "discussion_url": discussion_url,
+            "observed_at": now.isoformat(), "created_at": created.isoformat(),
+        })
+    print(f"[选题] 获取 {len(signals)} 条24小时内Farcaster趋势讨论（仅用于热点匹配）")
+    return signals
+
+
 class CreatorSelector:
     def __init__(self, config, feeds, now):
         self.config = config
@@ -297,6 +343,9 @@ class CreatorSelector:
 
         if community_signals is None:
             community_signals = fetch_hn_signals(self.now) if self.config.get("hn_enabled", True) else []
+            neynar_key = os.environ.get("NEYNAR_API_KEY", "").strip()
+            if neynar_key:
+                community_signals.extend(fetch_farcaster_signals(self.now, neynar_key))
         hot_items = [t for stat in hotlist_stats or [] for t in stat.get("titles", [])]
         ranked = []
         for cluster in clusters:
@@ -336,7 +385,9 @@ class CreatorSelector:
                 score -= 16
             evidence = [f"{len(publishers)}家独立来源报道（事实交叉验证，不代表平台热度）"] if len(publishers) > 1 else []
             for signal in signals:
-                if "points" in signal:
+                if signal.get("platform") == "Farcaster":
+                    evidence.append(f"Farcaster {signal['likes']}赞/{signal['recasts']}转发/{signal['comments']}评论")
+                elif signal.get("platform") == "Hacker News":
                     evidence.append(f"HN {signal['points']}票 / {signal['comments']}评论")
                 else:
                     evidence.append(f"{signal['platform']}榜单第{signal['rank']}名")
@@ -349,7 +400,7 @@ class CreatorSelector:
         counters["without_platform_signal"] = sum(not x["attention_verified"] for x in ranked)
         self.candidates = sorted((x for x in ranked if x["score"] >= floor and (not require_signal or x["attention_verified"])), key=lambda x: (x["score"], x["discussion_score"], x["published_at"]), reverse=True)
         counters["below_quality_floor"] = sum(x["score"] < floor for x in ranked)
-        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
+        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "community_by_platform": dict(Counter(x.get("platform", "unknown") for x in community_signals)), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
         print("[选题] 候选检查：" + json.dumps(self.diagnostics, ensure_ascii=False))
         pool_size = int(self.config.get("pool_per_category", 20))
         return [{"word": "AI热点" if category == "ai" else "Web3热点", "titles": self.diverse(category, pool_size), "count": len(self.diverse(category, pool_size))} for category in ("ai", "crypto")]

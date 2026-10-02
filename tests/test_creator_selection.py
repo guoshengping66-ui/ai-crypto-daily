@@ -9,7 +9,7 @@ from trendradar.ai.analyzer import AIAnalysisResult, AIAnalyzer
 from trendradar.core.analyzer import count_rss_frequency
 from trendradar.core.loader import load_config
 from trendradar.crawler.rss.parser import RSSParser
-from trendradar.creator import CreatorSelector, canonical_url, fetch_hn_signals, same_event
+from trendradar.creator import CreatorSelector, canonical_url, fetch_farcaster_signals, fetch_hn_signals, same_event
 from trendradar.notification.senders import _parse_creator_topic_cards, _send_creator_topics_to_bark
 
 
@@ -165,6 +165,28 @@ class CreatorSelectionTests(unittest.TestCase):
             signals = fetch_hn_signals(self.now)
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0]["points"], 20)
+
+    def test_farcaster_fetch_keeps_recent_engagement_and_discussion_link(self):
+        payload = {"casts": [
+            {"timestamp": self.now.isoformat(), "text": "OpenAI releases GPT-6", "hash": "0xabc", "author": {"username": "builder"}, "reactions": {"likes_count": 8, "recasts_count": 3}, "replies": {"count": 5}, "embeds": [{"url": "https://example.com/gpt6"}]},
+            {"timestamp": (self.now - timedelta(hours=25)).isoformat(), "text": "old"},
+            {"timestamp": (self.now + timedelta(hours=1)).isoformat(), "text": "future"},
+        ]}
+        response = Mock()
+        response.json.return_value = payload
+        with patch("trendradar.creator.requests.get", return_value=response) as request:
+            signals = fetch_farcaster_signals(self.now, "test-key")
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0]["points"], 11)
+        self.assertEqual(signals[0]["comments"], 5)
+        self.assertEqual(signals[0]["url"], "https://example.com/gpt6")
+        self.assertEqual(signals[0]["discussion_url"], "https://farcaster.xyz/builder/0xabc")
+        self.assertEqual(request.call_args.kwargs["headers"]["x-api-key"], "test-key")
+        item = self.item("OpenAI releases GPT-6", "gpt6")
+        selector = self.selector()
+        selector.prepare(selector.group_raw([item]), community_signals=signals)
+        self.assertEqual(len(selector.candidates), 1)
+        self.assertIn("Farcaster 8赞/3转发/5评论", selector.candidates[0]["attention_evidence"])
 
     def test_dry_run_disables_notifications_and_model_calls(self):
         with patch.dict("os.environ", {"CREATOR_DRY_RUN": "true", "AI_API_KEY": ""}):

@@ -93,6 +93,8 @@ platforms:
     - id: "douyin"
       name: "抖音热榜"
       expected_domain: "douyin.com"
+    - id: "aihot"
+      name: "AIHot 热点榜"
 
 
 
