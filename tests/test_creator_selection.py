@@ -105,6 +105,21 @@ class CreatorSelectionTests(unittest.TestCase):
         self.assertIn("微博相关话题榜单", selector.candidates[0]["attention_evidence"])
         self.assertEqual(selector.diagnostics["hotlist_matches_by_platform"], {"微博": 1})
 
+    def test_unfiltered_platform_snapshot_is_used_when_report_keyword_groups_omit_it(self):
+        article = self.item("Coinbase announces a new stablecoin payments network", "stablecoin", "crypto")
+        raw_hotlists = {"weibo": {article["title"]: {"ranks": [2], "url": article["url"]}}}
+        selector = self.selector()
+        selector.prepare(
+            selector.group_raw([article]),
+            hotlist_stats=[],
+            community_signals=[],
+            raw_hotlist_results=raw_hotlists,
+            id_to_name={"weibo": "微博"},
+        )
+        self.assertEqual(len(selector.candidates), 1)
+        self.assertEqual(selector.diagnostics["hotlist_records"], 1)
+        self.assertEqual(selector.diagnostics["hotlist_matches_by_platform"], {"微博": 1})
+
     def test_event_ticket_promotion_does_not_become_ai_news_from_layoff_keyword(self):
         item = self.item("Affected by layoffs? Don’t miss this $75 deal for your TechCrunch Disrupt 2026 Expo+ Pass", "promotion")
         selector = self.selector()

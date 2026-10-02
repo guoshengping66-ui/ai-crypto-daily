@@ -326,7 +326,7 @@ class CreatorSelector:
                 groups[category].append({**original, "category": category, "source_name": original.get("feed_name", "RSS")})
         return [{"word": "AI热点" if key == "ai" else "Web3热点", "titles": values, "count": len(values)} for key, values in groups.items() if values]
 
-    def prepare(self, rss_stats, hotlist_stats=(), community_signals=None):
+    def prepare(self, rss_stats, hotlist_stats=(), community_signals=None, raw_hotlist_results=None, id_to_name=None):
         counters = Counter()
         source_counts = Counter()
         items = []
@@ -373,6 +373,20 @@ class CreatorSelector:
             if neynar_key:
                 community_signals.extend(fetch_farcaster_signals(self.now, neynar_key))
         hot_items = [t for stat in hotlist_stats or [] for t in stat.get("titles", [])]
+        # The report's keyword groups can hide relevant topics from the creator
+        # selector. Prefer the unfiltered platform snapshot when the caller has it.
+        for source_id, titles in (raw_hotlist_results or {}).items():
+            if not isinstance(titles, dict):
+                continue
+            source_name = (id_to_name or {}).get(source_id, source_id)
+            for title, info in titles.items():
+                info = info if isinstance(info, dict) else {}
+                hot_items.append({
+                    "title": title,
+                    "url": info.get("url", ""),
+                    "ranks": info.get("ranks", []),
+                    "source_name": source_name,
+                })
         ranked = []
         hotlist_matches = Counter()
         for cluster in clusters:
@@ -445,7 +459,7 @@ class CreatorSelector:
         counters["without_platform_signal"] = sum(not x["attention_verified"] for x in ranked)
         self.candidates = sorted((x for x in ranked if x["score"] >= floor and (not require_signal or x["attention_verified"])), key=lambda x: (x["score"], x["discussion_score"], x["published_at"]), reverse=True)
         counters["below_quality_floor"] = sum(x["score"] < floor for x in ranked)
-        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "community_by_platform": dict(Counter(x.get("platform", "unknown") for x in community_signals)), "hotlist_matches_by_platform": dict(hotlist_matches), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
+        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "community_by_platform": dict(Counter(x.get("platform", "unknown") for x in community_signals)), "hotlist_records": len(hot_items), "hotlist_matches_by_platform": dict(hotlist_matches), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
         print("[选题] 候选检查：" + json.dumps(self.diagnostics, ensure_ascii=False))
         pool_size = int(self.config.get("pool_per_category", 20))
         return [{"word": "AI热点" if category == "ai" else "Web3热点", "titles": self.diverse(category, pool_size), "count": len(self.diverse(category, pool_size))} for category in ("ai", "crypto")]

@@ -405,7 +405,12 @@ class NewsAnalyzer:
                 from trendradar.creator import CreatorSelector
 
                 self._creator_selector = CreatorSelector(creator_config, self.ctx.rss_feeds, self.ctx.get_time())
-                ai_rss_stats = self._creator_selector.prepare(ai_rss_stats, ai_stats)
+                ai_rss_stats = self._creator_selector.prepare(
+                    ai_rss_stats,
+                    ai_stats,
+                    raw_hotlist_results=current_results if ai_mode == mode else None,
+                    id_to_name=ai_id_to_name,
+                )
                 self._creator_selector.diagnostics["source_health"] = {
                     "configured": self._rss_source_total,
                     "failed_ids": self._creator_feed_failures,
