@@ -78,6 +78,7 @@ ALIASES = {
 }
 STOPWORDS = set("a an the to of for in on at with and or is are its it as by from has have new ai crypto web3 news says said more model models token tokens today launch company companies bitcoin ethereum openai google nvidia microsoft anthropic binance solana".split())
 STOPWORDS.update("report reported reports now stock price bank data first using just million billion dollar dollars percent after once cuts layer network".split())
+TOPIC_MATCH_STOPWORDS = set("ai artificial intelligence crypto cryptocurrency web3 blockchain news today latest update updates trend trending says said announce announces announced report reports source video official".split())
 ENTITIES = ("openai", "anthropic", "google", "deepseek", "qwen", "kimi", "nvidia", "microsoft", "bitcoin", "ethereum", "solana", "binance", "coinbase", "tether", "aave", "polymarket", "hyperliquid")
 
 
@@ -167,6 +168,31 @@ def same_event(left, right):
     if len(named_anchors) >= 2 and numbers and actions_a & actions_b:
         return True
     return len(common) >= 2 and (len(common) / len(a | b) >= 0.55 or len(common) / min(len(a), len(b)) >= 0.8 or (len(common) >= 3 and len(common) / min(len(a), len(b)) >= 0.65))
+
+
+def attention_match_type(article, signal):
+    """Distinguish exact-event corroboration from a narrower related-topic trend."""
+    article_url, signal_url = canonical_url(article.get("url")), canonical_url(signal.get("url"))
+    if article_url and article_url == signal_url:
+        return "event"
+    if same_event(article, signal):
+        return "event"
+
+    # Platform hotlists often use short, paraphrased, or localized headlines.
+    # Keep this looser topic-level match separate from event deduplication so a
+    # broad company/category mention cannot silently merge two news events.
+    article_tokens = event_tokens(article.get("title", "")) - TOPIC_MATCH_STOPWORDS
+    signal_tokens = event_tokens(signal.get("title", "")) - TOPIC_MATCH_STOPWORDS
+    if not article_tokens or not signal_tokens:
+        return ""
+    common = article_tokens & signal_tokens
+    shorter = min(len(article_tokens), len(signal_tokens))
+    if shorter < 2:
+        return ""
+    minimum_common = min(3, shorter)
+    if len(common) >= minimum_common and len(common) / shorter >= 0.6:
+        return "topic"
+    return ""
 
 
 def classify(item, feed):
@@ -348,6 +374,7 @@ class CreatorSelector:
                 community_signals.extend(fetch_farcaster_signals(self.now, neynar_key))
         hot_items = [t for stat in hotlist_stats or [] for t in stat.get("titles", [])]
         ranked = []
+        hotlist_matches = Counter()
         for cluster in clusters:
             primary = cluster[0]
             if any(same_event(article, old) for article in cluster for old in self.history):
@@ -356,13 +383,25 @@ class CreatorSelector:
             publishers = sorted({x["publisher"] for x in cluster})
             event_id = hashlib.sha256((primary["category"] + canonical_url(primary["url"])).encode()).hexdigest()[:16]
             signals = []
+
+            def cluster_match_type(signal):
+                for article in cluster:
+                    match_type = attention_match_type(article, {**signal, "category": article["category"]})
+                    if match_type:
+                        return match_type
+                return ""
+
             for signal in community_signals:
-                if any(same_event(article, {**signal, "category": article["category"]}) for article in cluster):
-                    signals.append(signal)
+                match_type = cluster_match_type(signal)
+                if match_type:
+                    signals.append({**signal, "match_type": match_type})
             for hot in hot_items:
                 ranks = [x for x in hot.get("ranks", []) if isinstance(x, (int, float)) and x > 0]
-                if ranks and any(same_event(article, {**hot, "category": article["category"]}) for article in cluster):
-                    signals.append({"platform": hot.get("source_name", "热榜"), "rank": min(ranks), "url": hot.get("url", ""), "observed_at": self.now.isoformat()})
+                match_type = cluster_match_type(hot)
+                if ranks and match_type:
+                    platform = hot.get("source_name", "热榜")
+                    hotlist_matches[platform] += 1
+                    signals.append({"platform": platform, "rank": min(ranks), "url": hot.get("url", ""), "observed_at": self.now.isoformat(), "match_type": match_type})
 
             impact = bool(IMPACT_PATTERN.search(primary["title"]))
             routine = bool(ROUTINE_PATTERN.search(primary["title"]))
@@ -370,7 +409,7 @@ class CreatorSelector:
             # attention. Keep it as a modest ranking feature, separate from
             # directly observed hot-list/community signals.
             coverage = min(12, max(0, len(publishers) - 1) * 6)
-            community = max((min(28, math.log2(1 + x.get("points", 0)) * 2 + math.log2(1 + x.get("comments", 0)) * 3) if "points" in x else max(0, 20 - math.log2(1 + x["rank"]) * 2) for x in signals), default=0)
+            community = max((((min(28, math.log2(1 + x.get("points", 0)) * 2 + math.log2(1 + x.get("comments", 0)) * 3) if "points" in x else max(0, 20 - math.log2(1 + x["rank"]) * 2)) * (0.75 if x.get("match_type") == "topic" else 1)) for x in signals), default=0)
             age_hours = (self.now - timestamp(primary["published_at"])).total_seconds() / 3600
             freshness = max(0, 12 * (1 - age_hours / 24))
             authority = {"official": 12, "media": 8, "research": 3}.get(primary["source_kind"], 5)
@@ -385,7 +424,13 @@ class CreatorSelector:
                 score -= 16
             evidence = [f"{len(publishers)}家独立来源报道（事实交叉验证，不代表平台热度）"] if len(publishers) > 1 else []
             for signal in signals:
-                if signal.get("platform") == "Farcaster":
+                if signal.get("match_type") == "topic" and signal.get("platform") == "Farcaster":
+                    evidence.append(f"Farcaster相关话题：{signal['likes']}赞/{signal['recasts']}转发/{signal['comments']}评论")
+                elif signal.get("match_type") == "topic" and signal.get("platform") == "Hacker News":
+                    evidence.append(f"HN相关话题：{signal['points']}票/{signal['comments']}评论")
+                elif signal.get("match_type") == "topic":
+                    evidence.append(f"{signal['platform']}相关话题榜单第{signal['rank']}名")
+                elif signal.get("platform") == "Farcaster":
                     evidence.append(f"Farcaster {signal['likes']}赞/{signal['recasts']}转发/{signal['comments']}评论")
                 elif signal.get("platform") == "Hacker News":
                     evidence.append(f"HN {signal['points']}票 / {signal['comments']}评论")
@@ -400,7 +445,7 @@ class CreatorSelector:
         counters["without_platform_signal"] = sum(not x["attention_verified"] for x in ranked)
         self.candidates = sorted((x for x in ranked if x["score"] >= floor and (not require_signal or x["attention_verified"])), key=lambda x: (x["score"], x["discussion_score"], x["published_at"]), reverse=True)
         counters["below_quality_floor"] = sum(x["score"] < floor for x in ranked)
-        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "community_by_platform": dict(Counter(x.get("platform", "unknown") for x in community_signals)), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
+        self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "community_by_platform": dict(Counter(x.get("platform", "unknown") for x in community_signals)), "hotlist_matches_by_platform": dict(hotlist_matches), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
         print("[选题] 候选检查：" + json.dumps(self.diagnostics, ensure_ascii=False))
         pool_size = int(self.config.get("pool_per_category", 20))
         return [{"word": "AI热点" if category == "ai" else "Web3热点", "titles": self.diverse(category, pool_size), "count": len(self.diverse(category, pool_size))} for category in ("ai", "crypto")]

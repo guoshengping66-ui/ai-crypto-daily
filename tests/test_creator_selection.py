@@ -9,7 +9,7 @@ from trendradar.ai.analyzer import AIAnalysisResult, AIAnalyzer
 from trendradar.core.analyzer import count_rss_frequency
 from trendradar.core.loader import load_config
 from trendradar.crawler.rss.parser import RSSParser
-from trendradar.creator import CreatorSelector, canonical_url, fetch_farcaster_signals, fetch_hn_signals, same_event
+from trendradar.creator import CreatorSelector, attention_match_type, canonical_url, fetch_farcaster_signals, fetch_hn_signals, same_event
 from trendradar.notification.senders import _parse_creator_topic_cards, _send_creator_topics_to_bark
 
 
@@ -91,6 +91,19 @@ class CreatorSelectionTests(unittest.TestCase):
         selector.prepare(selector.group_raw(items), community_signals=[])
         self.assertEqual(selector.candidates, [])
         self.assertEqual(selector.diagnostics["counts"]["without_platform_signal"], 1)
+
+    def test_paraphrased_hotlist_topic_can_corrobate_without_claiming_same_event(self):
+        article = self.item("Coinbase announces stablecoin utility across global payments network with partners", "stablecoin", "crypto")
+        trend = {"title": "Coinbase stablecoin utility outlook investors", "ranks": [2], "source_name": "微博"}
+        self.assertEqual(attention_match_type(article, {**trend, "category": "crypto"}), "topic")
+        self.assertFalse(attention_match_type(article, {"title": "Coinbase", "category": "crypto"}))
+
+        selector = self.selector()
+        selector.prepare(selector.group_raw([article]), hotlist_stats=[{"titles": [trend]}], community_signals=[])
+        self.assertEqual(len(selector.candidates), 1)
+        self.assertEqual(selector.candidates[0]["signals"][0]["match_type"], "topic")
+        self.assertIn("微博相关话题榜单", selector.candidates[0]["attention_evidence"])
+        self.assertEqual(selector.diagnostics["hotlist_matches_by_platform"], {"微博": 1})
 
     def test_event_ticket_promotion_does_not_become_ai_news_from_layoff_keyword(self):
         item = self.item("Affected by layoffs? Don’t miss this $75 deal for your TechCrunch Disrupt 2026 Expo+ Pass", "promotion")
