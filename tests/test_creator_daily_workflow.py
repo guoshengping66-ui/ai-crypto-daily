@@ -12,6 +12,24 @@ from trendradar.notification.senders import (
 )
 
 
+def _rss_candidate_context(ai_urls=(), web3_urls=()):
+    published_at = "2026-09-30T11:00:00+00:00"
+    lines = []
+    if ai_urls:
+        lines.append(f"**AI热点** ({len(ai_urls)}条)")
+        lines.extend(
+            f"- [AI RSS] AI source candidate | 原文发布时间:{published_at} | 摘要:AI source summary | 链接:{url}"
+            for url in ai_urls
+        )
+    if web3_urls:
+        lines.append(f"**币圈热点** ({len(web3_urls)}条)")
+        lines.extend(
+            f"- [Crypto RSS] Web3 source candidate | 原文发布时间:{published_at} | 摘要:Web3 source summary | 链接:{url}"
+            for url in web3_urls
+        )
+    return "\n".join(lines)
+
+
 class CreatorDailyWorkflowTests(unittest.TestCase):
     def test_prompt_only_requests_ai_and_web3_hotspot_cards(self):
         prompt = (
@@ -22,6 +40,8 @@ class CreatorDailyWorkflowTests(unittest.TestCase):
 
         self.assertIn("最多3条 AI 和最多3条 Web3 热点", prompt)
         self.assertIn("滚动24小时内", prompt)
+        self.assertIn("可观察关注信号", prompt)
+        self.assertIn("不能为了凑满6条降低时效或证据门槛", prompt)
         self.assertIn("简述：一句话", prompt)
         json_example = prompt.split("JSON 格式：\n", 1)[1].split(
             "\n\n只返回 JSON", 1
@@ -81,6 +101,50 @@ X中文稿：可以试试这个变化。
         self.assertFalse(
             AIAnalyzer._creator_timestamp_is_within_24h("yesterday", now)
         )
+        self.assertEqual(AIAnalyzer._creator_timestamp_status("", now), "missing")
+        self.assertEqual(
+            AIAnalyzer._creator_timestamp_status("yesterday", now), "invalid"
+        )
+        self.assertEqual(
+            AIAnalyzer._creator_timestamp_status(
+                (now + timedelta(minutes=1)).isoformat(), now
+            ),
+            "future",
+        )
+        self.assertEqual(
+            AIAnalyzer._creator_timestamp_status(
+                (now - timedelta(hours=24, seconds=1)).isoformat(), now
+            ),
+            "older_than_24h",
+        )
+
+    def test_model_cards_must_match_fresh_rss_url_and_category(self):
+        evidence = AIAnalyzer._creator_rss_evidence(
+            _rss_candidate_context(
+                ["https://example.com/ai"], ["https://example.com/web3"]
+            )
+        )
+        section = (
+            "AI热点（2/3）\n"
+            "1. 【热点】AI事件\n简述：AI出现重要新进展。\n"
+            "时间：错误时间\n来源：https://example.com/ai\n"
+            "2. 【热点】无来源事件\n简述：未核验。\n来源：https://example.com/unknown"
+        )
+
+        clean, rejected = AIAnalyzer._validate_creator_topic_section(
+            section, "AI", "ai", evidence
+        )
+
+        self.assertEqual(rejected, 1)
+        self.assertIn("AI热点（1/3）", clean)
+        self.assertIn("时间：2026-09-30T11:00:00+00:00", clean)
+        self.assertIn("来源：https://example.com/ai", clean)
+        self.assertNotIn("错误时间", clean)
+        web3_clean, web3_rejected = AIAnalyzer._validate_creator_topic_section(
+            section, "Web3", "crypto", evidence
+        )
+        self.assertEqual(AIAnalyzer._creator_card_count(web3_clean), 0)
+        self.assertEqual(web3_rejected, 2)
 
     def test_hotlist_is_limited_and_rss_is_filtered_by_original_publication_time(self):
         analyzer = AIAnalyzer.__new__(AIAnalyzer)
@@ -129,7 +193,7 @@ X中文稿：可以试试这个变化。
             [{"word": "AI RSS", "titles": rss_titles}],
         )
 
-        self.assertEqual(prepared.hotlist_analyzed, 2)
+        self.assertEqual(prepared.hotlist_analyzed, 6)
         self.assertEqual(prepared.rss_analyzed, 1)
         self.assertIn("上榜时间不等于发布时间", prepared.news_content)
         self.assertIn("原文发布时间:2026-09-30T11:00:00+00:00", prepared.rss_content)
@@ -174,7 +238,7 @@ X中文稿：可以试试这个变化。
         self.assertNotIn("Old AI release", result.core_trends)
         self.assertNotIn("Undated AI release", result.core_trends)
 
-    def test_explicit_shortage_is_accepted_without_retrying_or_inventing_news(self):
+    def test_hotlist_only_clues_do_not_generate_unverified_creator_cards(self):
         analyzer = AIAnalyzer.__new__(AIAnalyzer)
         analyzer.analysis_config = {
             "PROMPT_FILE": "config/creator_daily_prompt.txt",
@@ -196,36 +260,15 @@ X中文稿：可以试试这个变化。
         analyzer._prepare_news_content = Mock(
             return_value=PreparedNewsContent("news", "", 1, 0, 1, 1, 0)
         )
-        ai_section = (
-            "AI选题（2/3；24小时内合格素材不足）\n"
-            "1. 【实测】AI话题一\n事实：新功能上线。\n原文：https://example.com/ai-1\n"
-            "2. 【观点】AI话题二\n事实：论文公开。\n原文：https://example.com/ai-2"
-        )
-        crypto_section = (
-            "Web3选题（3/3）\n"
-            "1. 【快讯】币圈话题一\n事实：新提案发布。\n原文：https://example.com/w3-1\n"
-            "2. 【快讯】币圈话题二\n事实：新规则公布。\n原文：https://example.com/w3-2\n"
-            "3. 【观点】币圈话题三\n事实：安全公告更新。\n原文：https://example.com/w3-3"
-        )
-        analyzer._call_ai = Mock(
-            return_value=json.dumps(
-                {
-                    "core_trends": ai_section,
-                    "sentiment_controversy": crypto_section,
-                    "signals": "",
-                    "rss_insights": "",
-                    "outlook_strategy": "",
-                    "standalone_summaries": {},
-                },
-                ensure_ascii=False,
-            )
-        )
+        analyzer._call_ai = Mock()
 
         result = analyzer.analyze([])
 
         self.assertTrue(result.success, result.error)
-        self.assertIn("AI话题一", result.core_trends)
-        self.assertEqual(analyzer._call_ai.call_count, 1)
+        self.assertTrue(result.skipped)
+        self.assertEqual(AIAnalyzer._creator_card_count(result.core_trends), 0)
+        self.assertEqual(AIAnalyzer._creator_card_count(result.sentiment_controversy), 0)
+        analyzer._call_ai.assert_not_called()
 
     def test_retry_accepts_actual_partial_count_without_shortage_note(self):
         analyzer = AIAnalyzer.__new__(AIAnalyzer)
@@ -239,7 +282,7 @@ X中文稿：可以试试这个变化。
             2026, 9, 30, 12, tzinfo=timezone.utc
         )
         analyzer.max_news = 10
-        analyzer.include_rss = False
+        analyzer.include_rss = True
         analyzer.include_rank_timeline = False
         analyzer.include_standalone = False
         analyzer.language = "Chinese"
@@ -247,7 +290,22 @@ X中文稿：可以试试这个变化。
         analyzer.system_prompt = ""
         analyzer.user_prompt_template = "{current_time}\n{news_content}\n{rss_content}"
         analyzer._prepare_news_content = Mock(
-            return_value=PreparedNewsContent("news", "", 1, 0, 1, 1, 0)
+            return_value=PreparedNewsContent(
+                "news",
+                _rss_candidate_context(
+                    ["https://example.com/ai-1", "https://example.com/ai-2"],
+                    [
+                        "https://example.com/w1",
+                        "https://example.com/w2",
+                        "https://example.com/w3",
+                    ],
+                ),
+                1,
+                5,
+                6,
+                1,
+                5,
+            )
         )
 
         def response(ai_section):
@@ -255,10 +313,10 @@ X中文稿：可以试试这个变化。
                 {
                     "core_trends": ai_section,
                     "sentiment_controversy": (
-                        "Web3选题（3/3）\n"
-                        "1. 【快讯】Web3一\n原文：https://example.com/w1\n"
-                        "2. 【快讯】Web3二\n原文：https://example.com/w2\n"
-                        "3. 【快讯】Web3三\n原文：https://example.com/w3"
+                        "Web3热点（3/3）\n"
+                        "1. 【快讯】Web3一\n简述：安全公告更新。\n来源：https://example.com/w1\n"
+                        "2. 【快讯】Web3二\n简述：新规则公布。\n来源：https://example.com/w2\n"
+                        "3. 【快讯】Web3三\n简述：新提案发布。\n来源：https://example.com/w3"
                     ),
                     "signals": "",
                     "rss_insights": "",
@@ -272,13 +330,13 @@ X中文稿：可以试试这个变化。
             side_effect=[
                 response(
                     "AI选题\n"
-                    "1. 【实测】AI话题一\n原文：https://example.com/ai-1\n"
-                    "2. 【观点】AI话题二\n原文：https://example.com/ai-2"
+                    "1. 【实测】AI话题一\n简述：新功能上线。\n来源：https://example.com/ai-1\n"
+                    "2. 【观点】AI话题二\n简述：论文公开。\n来源：https://example.com/ai-2"
                 ),
                 response(
                     "AI热点（2/3）\n"
-                    "1. 【实测】AI话题一\n原文：https://example.com/ai-1\n"
-                    "2. 【观点】AI话题二\n原文：https://example.com/ai-2"
+                    "1. 【实测】AI话题一\n简述：新功能上线。\n来源：https://example.com/ai-1\n"
+                    "2. 【观点】AI话题二\n简述：论文公开。\n来源：https://example.com/ai-2"
                 ),
             ]
         )

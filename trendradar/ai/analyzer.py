@@ -135,7 +135,7 @@ class AIAnalyzer:
         ):
             print("[AI] 使用 RSS 免费兜底模式：不调用 AI 模型")
             return self._build_creator_rss_fallback(stats, rss_stats, report_mode)
-        
+
         # 打印配置信息方便调试
         model = self.ai_config.get("MODEL", "unknown")
         api_key = self.client.api_key or ""
@@ -173,6 +173,25 @@ class AIAnalyzer:
                 rss_count=prepared.rss_total,
                 analyzed_news=0,
                 max_news_limit=self.max_news
+            )
+
+        if self._is_creator_daily_prompt() and not prepared.rss_content:
+            print("[AI] 严格24小时筛选后没有带原文时间和链接的 RSS 候选，跳过生成，避免从热榜线索编造热点")
+            return AIAnalysisResult(
+                core_trends="AI热点（0/3）",
+                sentiment_controversy="Web3热点（0/3）",
+                success=True,
+                skipped=True,
+                error="严格24小时筛选后没有可核验的 RSS 候选",
+                total_news=total_news,
+                hotlist_count=prepared.hotlist_total,
+                rss_count=prepared.rss_total,
+                analyzed_news=prepared.analyzed_count,
+                max_news_limit=self.max_news,
+                hotlist_analyzed=prepared.hotlist_analyzed,
+                rss_analyzed=prepared.rss_analyzed,
+                include_rss=self.include_rss,
+                include_standalone=self.include_standalone,
             )
 
         # 构建提示词
@@ -390,6 +409,25 @@ class AIAnalyzer:
                         else:
                             print("[AI] 创作者日报缺失分区补全成功")
 
+                allowed_candidates = self._creator_rss_evidence(prepared.rss_content)
+                result.core_trends, rejected_ai = self._validate_creator_topic_section(
+                    result.core_trends, "AI", "ai", allowed_candidates
+                )
+                result.sentiment_controversy, rejected_web3 = self._validate_creator_topic_section(
+                    result.sentiment_controversy, "Web3", "crypto", allowed_candidates
+                )
+                rejected_total = rejected_ai + rejected_web3
+                if rejected_total:
+                    print(
+                        "[AI] 日报来源校验：剔除 "
+                        f"{rejected_total} 条未匹配到本轮24小时 RSS 原文的模型卡片"
+                    )
+                print(
+                    "[AI] 日报来源校验后保留："
+                    f"AI={self._creator_card_count(result.core_trends)}，"
+                    f"Web3={self._creator_card_count(result.sentiment_controversy)}"
+                )
+
             # 如果配置未启用 RSS 分析，强制清空 AI 返回的 RSS 洞察
             if not self.include_rss:
                 result.rss_insights = ""
@@ -446,27 +484,29 @@ class AIAnalyzer:
         if creator_daily and rss_stats:
             current_time = self.get_time_func()
             fresh_stats = []
-            rejected_rss = 0
+            rejected_rss = {"missing": 0, "invalid": 0, "future": 0, "older_than_24h": 0}
             for stat in rss_stats:
-                fresh_titles = [
-                    item
-                    for item in stat.get("titles", [])
-                    if isinstance(item, dict)
-                    and self._creator_timestamp_is_within_24h(
-                        item.get("published_at"), current_time
-                    )
-                ]
-                rejected_rss += len(stat.get("titles", [])) - len(fresh_titles)
+                fresh_titles = []
+                for item in stat.get("titles", []):
+                    published_at = item.get("published_at") if isinstance(item, dict) else None
+                    status = self._creator_timestamp_status(published_at, current_time)
+                    if status == "fresh":
+                        fresh_titles.append(item)
+                    else:
+                        rejected_rss[status] += 1
                 if fresh_titles:
                     fresh_stats.append(
                         {**stat, "titles": fresh_titles, "count": len(fresh_titles)}
                     )
             rss_stats = fresh_stats
-            if rejected_rss:
-                print(
-                    f"[AI] 创作者日报严格24小时校验：剔除 {rejected_rss} 条"
-                    "发布时间缺失、无效或超出窗口的 RSS 候选"
-                )
+            rejected_total = sum(rejected_rss.values())
+            passed_total = sum(len(stat.get("titles", [])) for stat in fresh_stats)
+            print(
+                "[AI] 创作者日报24小时校验："
+                f"通过 {passed_total} 条；剔除 {rejected_total} 条 "
+                f"（缺时间 {rejected_rss['missing']}、格式无效 {rejected_rss['invalid']}、"
+                f"超过24小时 {rejected_rss['older_than_24h']}、未来时间 {rejected_rss['future']}）"
+            )
 
         # 计算总新闻数
         hotlist_total = sum(len(s.get("titles", [])) for s in stats) if stats else 0
@@ -475,7 +515,7 @@ class AIAnalyzer:
         # 热榜内容
         if stats:
             creator_hotlist_limit = (
-                min(12, max(1, self.max_news // 5))
+                min(12, max(6, self.max_news // 5))
                 if creator_daily and self.max_news > 0
                 else 12 if creator_daily else self.max_news
             )
@@ -547,7 +587,16 @@ class AIAnalyzer:
 
         # RSS 内容（仅在启用时构建）
         if self.include_rss and rss_stats:
-            remaining = self.max_news - news_count
+            creator_hotlist_budget = (
+                min(12, max(6, self.max_news // 5))
+                if creator_daily and self.max_news > 0
+                else 12
+            )
+            remaining = (
+                max(12, self.max_news - creator_hotlist_budget)
+                if creator_daily
+                else self.max_news - news_count
+            )
             if creator_daily:
                 # RSS groups are ordered by config priority. Round-robin
                 # selection prevents the first domain from consuming the
@@ -611,22 +660,142 @@ class AIAnalyzer:
         )
 
     @staticmethod
-    def _creator_timestamp_is_within_24h(value: Any, now: datetime) -> bool:
-        """Creator candidates require a parseable original timestamp in the rolling window."""
+    def _creator_timestamp_status(value: Any, now: datetime) -> str:
+        """Classify source timestamps for the creator digest's rolling 24-hour gate."""
         raw_value = str(value or "").strip()
         if not raw_value:
-            return False
+            return "missing"
         try:
             published_at = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
         except ValueError:
-            return False
+            return "invalid"
 
         if published_at.tzinfo is None:
             published_at = published_at.replace(tzinfo=timezone.utc)
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
         age = now.astimezone(timezone.utc) - published_at.astimezone(timezone.utc)
-        return timedelta(0) <= age <= timedelta(hours=24)
+        if age < timedelta(0):
+            return "future"
+        if age > timedelta(hours=24):
+            return "older_than_24h"
+        return "fresh"
+
+    @staticmethod
+    def _creator_timestamp_is_within_24h(value: Any, now: datetime) -> bool:
+        """Creator candidates require a parseable original timestamp in the rolling window."""
+        return AIAnalyzer._creator_timestamp_status(value, now) == "fresh"
+
+    @staticmethod
+    def _creator_card_count(section: str) -> int:
+        return len(re.findall(r"(?m)^[ \t]*\d+[.)、][ \t]*(?:\*\*)?【", section or ""))
+
+    @staticmethod
+    def _creator_rss_evidence(rss_content: str) -> Dict[str, Dict[str, str]]:
+        """Build an allowlist from the exact fresh RSS items shown to the model."""
+        evidence = {}
+        group_name = ""
+        for line in (rss_content or "").splitlines():
+            group_match = re.match(r"^\*\*(.+?)\*\*\s*\(\d+条\)", line.strip())
+            if group_match:
+                group_name = group_match.group(1).strip()
+                continue
+
+            if not line.lstrip().startswith("-"):
+                continue
+            time_match = re.search(r"\|\s*原文发布时间:([^|]+)", line)
+            url_match = re.search(r"\|\s*链接:(https?://\S+)", line)
+            if not time_match or not url_match:
+                continue
+
+            published_at = time_match.group(1).strip()
+            url = url_match.group(1).strip().rstrip(".,;，。；)")
+            parsed_url = urlparse(url)
+            if parsed_url.scheme not in ("http", "https") or not parsed_url.netloc:
+                continue
+
+            title_part = line.split("| 原文发布时间:", 1)[0].strip()
+            title_part = re.sub(r"^-\s*\[[^]]+\]\s*", "", title_part)
+            title = title_part.strip()
+            category = AIAnalyzer._rss_fallback_category(group_name, title)
+            if not category:
+                continue
+
+            evidence[url] = {
+                "published_at": published_at,
+                "category": category,
+            }
+        return evidence
+
+    @staticmethod
+    def _validate_creator_topic_section(
+        section: str,
+        label: str,
+        category: str,
+        allowed_candidates: Dict[str, Dict[str, str]],
+    ) -> tuple[str, int]:
+        """Keep only model cards linked to eligible, in-prompt RSS candidates."""
+        section = str(section or "")
+        start_pattern = re.compile(
+            r"(?m)^[ \t]*\d+[.)、][ \t]*(?:\*\*)?【(?P<kind>[^】]*)】(?P<title>[^\r\n]*)"
+        )
+        matches = list(start_pattern.finditer(section or ""))
+        accepted = []
+        rejected = 0
+        seen_urls = set()
+
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+            block = section[match.start():end]
+            source_match = re.search(
+                r"(?m)^\s*(?:来源|原文|链接)\s*[：:]\s*(https?://[^\s|<>]+)",
+                block,
+            )
+            summary_match = re.search(
+                r"(?m)^\s*简述(?:（[^）]*）)?\s*[：:]\s*(.+?)\s*$", block
+            )
+            title = re.sub(r"\*+\s*$", "", match.group("title")).strip()
+            if not source_match or not summary_match or not title:
+                rejected += 1
+                continue
+
+            url = source_match.group(1).rstrip(".,;，。；)")
+            candidate = allowed_candidates.get(url)
+            if (
+                not candidate
+                or candidate.get("category") != category
+                or url in seen_urls
+                or len(accepted) >= 3
+            ):
+                rejected += 1
+                continue
+
+            summary = re.sub(r"\s+", " ", summary_match.group(1)).strip()
+            if not summary:
+                rejected += 1
+                continue
+
+            seen_urls.add(url)
+            accepted.append(
+                {
+                    "title": title,
+                    "summary": summary,
+                    "published_at": candidate["published_at"],
+                    "url": url,
+                }
+            )
+
+        lines = [f"{label}热点（{len(accepted)}/3）"]
+        for index, card in enumerate(accepted, 1):
+            lines.extend(
+                [
+                    f"{index}. 【热点】{card['title']}",
+                    f"简述：{card['summary']}",
+                    f"时间：{card['published_at']}",
+                    f"来源：{card['url']}",
+                ]
+            )
+        return "\n".join(lines), rejected
 
     @staticmethod
     def _interleave_rss_groups(
