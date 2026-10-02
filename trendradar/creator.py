@@ -33,7 +33,9 @@ CRYPTO_PATTERN = re.compile(
 )
 PROMO_PATTERN = re.compile(
     r"sponsored|press release|price prediction|best (?:crypto|coins)|presale|"
-    r"how to buy|next (?:100x|1000x)|价格预测|买入指南|广告|推广合作|预售代币", re.I
+    r"how to buy|next (?:100x|1000x)|don['’]t miss|expo.{0,30}pass|"
+    r"(?:conference|disrupt).{0,50}(?:ticket|pass)|early[- ]bird|register now|"
+    r"价格预测|买入指南|广告|推广合作|预售代币|活动报名|购票|门票", re.I
 )
 ROUNDUP_PATTERN = re.compile(
     r"daily (?:digest|roundup)|weekly (?:digest|roundup)|week in review|"

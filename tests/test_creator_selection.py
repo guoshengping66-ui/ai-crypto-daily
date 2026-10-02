@@ -80,6 +80,13 @@ class CreatorSelectionTests(unittest.TestCase):
         selector.prepare(selector.group_raw(items), community_signals=[])
         self.assertEqual(selector.candidates, [])
 
+    def test_event_ticket_promotion_does_not_become_ai_news_from_layoff_keyword(self):
+        item = self.item("Affected by layoffs? Don’t miss this $75 deal for your TechCrunch Disrupt 2026 Expo+ Pass", "promotion")
+        selector = self.selector()
+        selector.prepare(selector.group_raw([item]), community_signals=[])
+        self.assertEqual(selector.candidates, [])
+        self.assertEqual(selector.diagnostics["counts"]["promotion_or_roundup"], 1)
+
     def test_community_discussion_is_observable_and_cannot_refresh_old_news(self):
         first = self.item("OpenAI releases GPT-6", "gpt6")
         old = self.item("Google releases Gemini-3", "old", age=30)
