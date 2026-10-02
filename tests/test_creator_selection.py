@@ -27,6 +27,9 @@ class CreatorSelectionTests(unittest.TestCase):
     def selector(self):
         return CreatorSelector(self.config, self.feeds, self.now)
 
+    def hotlist(self, *items):
+        return [{"titles": [{"title": x["title"], "url": x["url"], "ranks": [3], "source_name": "抖音热榜"} for x in items]}]
+
     def test_rss_group_retains_original_timestamp_for_strict_gate(self):
         item = self.item("OpenAI releases a new coding model", "release")
         stats, _ = count_rss_frequency([item], [], [], quiet=True)
@@ -55,7 +58,7 @@ class CreatorSelectionTests(unittest.TestCase):
     def test_time_advertising_and_ordinary_price_noise_do_not_fill_slots(self):
         items = [self.item("OpenAI releases a coding model", "new"), self.item("OpenAI releases old model", "old", age=24.001), self.item("OpenAI releases future model", "future", age=-1), self.item("OpenAI releases an undated model", "undated", published_at=""), self.item("Sponsored crypto presale launch", "ad", "crypto"), self.item("Bitcoin price rises today", "price", "crypto")]
         selector = self.selector()
-        selector.prepare(selector.group_raw(items), community_signals=[])
+        selector.prepare(selector.group_raw(items), hotlist_stats=self.hotlist(items[0]), community_signals=[])
         self.assertEqual([x["url"] for x in selector.candidates], [items[0]["url"]])
         self.assertEqual(selector.diagnostics["counts"]["older_than_24h"], 1)
 
@@ -77,8 +80,17 @@ class CreatorSelectionTests(unittest.TestCase):
     def test_generic_stock_whale_and_monthly_recaps_are_not_preferred_hotspots(self):
         items = [self.item("英伟达股价再创历史新高，市值逼近6万亿美元", "stock"), self.item("数据：某巨鲸清仓DeFi代币，亏损961万美元", "whale", "crypto"), self.item("The latest AI news we announced in September 2026", "recap")]
         selector = self.selector()
+        selector.prepare(selector.group_raw(items), hotlist_stats=self.hotlist(*items), community_signals=[])
+        self.assertEqual(selector.candidates, [])
+        self.assertEqual(selector.diagnostics["counts"]["market_or_whale_noise"], 2)
+
+    def test_publisher_coverage_alone_is_not_platform_heat(self):
+        self.feeds.append({"id": "ai-two", "category": "ai", "publisher": "second-news"})
+        items = [self.item("OpenAI releases GPT-6", "gpt6"), self.item("OpenAI发布GPT-6", "gpt6-cn", feed_id="ai-two")]
+        selector = self.selector()
         selector.prepare(selector.group_raw(items), community_signals=[])
         self.assertEqual(selector.candidates, [])
+        self.assertEqual(selector.diagnostics["counts"]["without_platform_signal"], 1)
 
     def test_event_ticket_promotion_does_not_become_ai_news_from_layoff_keyword(self):
         item = self.item("Affected by layoffs? Don’t miss this $75 deal for your TechCrunch Disrupt 2026 Expo+ Pass", "promotion")
@@ -102,21 +114,21 @@ class CreatorSelectionTests(unittest.TestCase):
         self.feeds.append({"id": "ai-two", "category": "ai", "publisher": "ai-news"})
         items = [self.item("OpenAI releases GPT-6", "gpt6"), self.item("OpenAI发布GPT-6", "gpt6-other", feed_id="ai-two")]
         selector = self.selector()
-        selector.prepare(selector.group_raw(items), community_signals=[])
+        selector.prepare(selector.group_raw(items), hotlist_stats=self.hotlist(items[0]), community_signals=[])
         self.assertEqual(len(selector.candidates), 1)
         self.assertEqual(selector.candidates[0]["coverage_publishers"], ["ai-news"])
-        self.assertFalse(selector.candidates[0]["attention_verified"])
+        self.assertTrue(selector.candidates[0]["attention_verified"])
 
     def test_history_excludes_successful_event_but_allows_a_new_development(self):
         first = self.item("OpenAI releases GPT-6", "gpt6")
         selector = self.selector()
-        selector.prepare(selector.group_raw([first]), community_signals=[])
+        selector.prepare(selector.group_raw([first]), hotlist_stats=self.hotlist(first), community_signals=[])
         result = selector.complete(AIAnalysisResult(success=False))
         selector.archive(result, {"bark": True}, [first["url"]])
         another_source = self.item("OpenAI发布GPT-6", "other")
         new_event = self.item("OpenAI GPT-6 outage", "outage")
         second = self.selector()
-        second.prepare(second.group_raw([another_source, new_event]), community_signals=[])
+        second.prepare(second.group_raw([another_source, new_event]), hotlist_stats=self.hotlist(another_source, new_event), community_signals=[])
         self.assertEqual([x["url"] for x in second.candidates], [new_event["url"]])
         self.assertEqual(second.diagnostics["counts"]["previously_delivered_events"], 1)
 
@@ -124,7 +136,7 @@ class CreatorSelectionTests(unittest.TestCase):
         items = [self.item(f"{name} releases {product}", product) for name, product in (("OpenAI", "Atlas"), ("Google", "Orion"), ("Nvidia", "Spectra"))]
         items += [self.item(f"{name} launches {product}", product, "crypto") for name, product in (("Coinbase", "Vault"), ("Solana", "Nova"), ("Aave", "Prism"))]
         selector = self.selector()
-        selector.prepare(selector.group_raw(items), community_signals=[])
+        selector.prepare(selector.group_raw(items), hotlist_stats=self.hotlist(*items), community_signals=[])
         result = selector.complete(AIAnalysisResult(success=False, error="model unavailable"))
         self.assertEqual(len(_parse_creator_topic_cards(result.core_trends)), 3)
         self.assertEqual(len(_parse_creator_topic_cards(result.sentiment_controversy)), 3)

@@ -81,6 +81,18 @@ platforms:
     - id: "zhihu"
       name: "知乎"
       expected_domain: "zhihu.com"
+    - id: "toutiao"
+      name: "今日头条"
+      expected_domain: "toutiao.com"
+    - id: "baidu"
+      name: "百度热搜"
+      expected_domain: "baidu.com"
+    - id: "thepaper"
+      name: "澎湃新闻"
+      expected_domain: "thepaper.cn"
+    - id: "douyin"
+      name: "抖音热榜"
+      expected_domain: "douyin.com"
 
 
 
@@ -139,6 +151,23 @@ rss:
       category: "ai"
       kind: "official"
       publisher: "nvidia"
+    - id: "mit-technology-review"
+      name: "MIT Technology Review AI"
+      url: "https://www.technologyreview.com/feed/"
+      category: "ai"
+      publisher: "mittechreview"
+    - id: "mit-news-machine-learning"
+      name: "MIT News 机器学习"
+      url: "https://news.mit.edu/rss/topic/machine-learning"
+      category: "ai"
+      kind: "research"
+      publisher: "mitnews"
+    - id: "google-research"
+      name: "Google Research"
+      url: "https://research.google/blog/rss/"
+      category: "ai"
+      kind: "research"
+      publisher: "google-research"
     - id: "arxiv-cs-ai"
       name: "arXiv AI 论文"
       url: "https://rss.arxiv.org/rss/cs.AI"
@@ -279,6 +308,7 @@ report:
 creator:
   enabled: true
   hn_enabled: true                    # 公共HN讨论数据：投票与评论，不等同于X互动
+  require_platform_signal: true       # 至少匹配一个真实热榜或HN讨论；媒体报道数量不能冒充平台热度
   pool_per_category: 20               # 每类最多20个合格事件交给模型选择
   min_score: 24                       # 候选质量门槛；不是浏览量预测
   history_days: 7                     # 已成功推送的相同事件7天内不重复

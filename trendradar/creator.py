@@ -317,20 +317,24 @@ class CreatorSelector:
 
             impact = bool(IMPACT_PATTERN.search(primary["title"]))
             routine = bool(ROUTINE_PATTERN.search(primary["title"]))
-            coverage = min(24, max(0, len(publishers) - 1) * 12)
+            # Publisher breadth corroborates facts, but is not itself audience
+            # attention. Keep it as a modest ranking feature, separate from
+            # directly observed hot-list/community signals.
+            coverage = min(12, max(0, len(publishers) - 1) * 6)
             community = max((min(28, math.log2(1 + x.get("points", 0)) * 2 + math.log2(1 + x.get("comments", 0)) * 3) if "points" in x else max(0, 20 - math.log2(1 + x["rank"]) * 2) for x in signals), default=0)
             age_hours = (self.now - timestamp(primary["published_at"])).total_seconds() / 3600
             freshness = max(0, 12 * (1 - age_hours / 24))
             authority = {"official": 12, "media": 8, "research": 3}.get(primary["source_kind"], 5)
-            score = round(coverage + community + freshness + authority + (18 if impact else 4) - (14 if routine else 0), 1)
+            score = round(coverage + community + freshness + authority + (8 if impact else 4) - (14 if routine else 0), 1)
             # A monetary figure is not sufficient reason to select generic
             # equity prices or anonymous individual trading activity.
             noise = bool(re.search(r"某巨鲸|某鲸鱼|某地址|某交易员|anonymous whale|stock (?:price|rally)|股价|市值逼近", primary["title"], re.I))
             if noise:
-                score -= 18
-            if primary["source_kind"] == "research" and not (coverage or community):
+                counters["market_or_whale_noise"] += 1
+                continue
+            if primary["source_kind"] == "research" and not signals:
                 score -= 16
-            evidence = [f"{len(publishers)}家来源覆盖"] if len(publishers) > 1 else []
+            evidence = [f"{len(publishers)}家独立来源报道（事实交叉验证，不代表平台热度）"] if len(publishers) > 1 else []
             for signal in signals:
                 if "points" in signal:
                     evidence.append(f"HN {signal['points']}票 / {signal['comments']}评论")
@@ -338,10 +342,12 @@ class CreatorSelector:
                     evidence.append(f"{signal['platform']}榜单第{signal['rank']}名")
             if not evidence:
                 evidence.append("实质新进展；尚无匹配的社区讨论数据" if impact else "单一来源报道；讨论数据未核验")
-            ranked.append({**primary, "event_id": event_id, "score": score, "attention_evidence": "；".join(evidence), "attention_verified": bool(coverage or community), "signals": signals, "coverage_publishers": publishers, "supporting_sources": [{"title": x["title"], "url": x["url"], "published_at": x["published_at"], "publisher": x["publisher"]} for x in cluster], "entity": next((x for x in ENTITIES if x in normalized_text(primary["title"])), "")})
+            ranked.append({**primary, "event_id": event_id, "score": score, "discussion_score": round(community, 1), "coverage_score": coverage, "impact_flag": impact, "attention_evidence": "；".join(evidence), "attention_verified": bool(signals), "signals": signals, "coverage_publishers": publishers, "supporting_sources": [{"title": x["title"], "url": x["url"], "published_at": x["published_at"], "publisher": x["publisher"]} for x in cluster], "entity": next((x for x in ENTITIES if x in normalized_text(primary["title"])), "")})
 
         floor = float(self.config.get("min_score", 24))
-        self.candidates = sorted((x for x in ranked if x["score"] >= floor), key=lambda x: (x["score"], x["attention_verified"], x["published_at"]), reverse=True)
+        require_signal = self.config.get("require_platform_signal", True)
+        counters["without_platform_signal"] = sum(not x["attention_verified"] for x in ranked)
+        self.candidates = sorted((x for x in ranked if x["score"] >= floor and (not require_signal or x["attention_verified"])), key=lambda x: (x["score"], x["discussion_score"], x["published_at"]), reverse=True)
         counters["below_quality_floor"] = sum(x["score"] < floor for x in ranked)
         self.diagnostics = {"counts": dict(counters), "fresh_by_source": dict(source_counts), "community_records": len(community_signals), "eligible_ai": sum(x["category"] == "ai" for x in self.candidates), "eligible_web3": sum(x["category"] == "crypto" for x in self.candidates)}
         print("[选题] 候选检查：" + json.dumps(self.diagnostics, ensure_ascii=False))
