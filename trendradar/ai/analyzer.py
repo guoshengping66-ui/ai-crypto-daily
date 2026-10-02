@@ -47,6 +47,7 @@ class AIAnalysisResult:
     include_rss: bool = True             # 是否启用 RSS 分析
     include_standalone: bool = False     # 是否启用独立展示区分析
     fallback_used: bool = False          # 是否使用无模型 RSS 原始候选模式
+    creator_delivered_urls: List[str] = field(default_factory=list)
 
 
 class PreparedNewsContent(NamedTuple):
@@ -630,6 +631,10 @@ class AIAnalyzer:
                             line = f"- {title}"
                         if creator_daily:
                             line += f" | 原文发布时间:{published_at}"
+                            if t.get("event_id"):
+                                line += f" | 事件ID:{t['event_id']} | 候选分:{t.get('score', 0)}"
+                            if t.get("attention_evidence"):
+                                line += f" | 关注依据:{t['attention_evidence']}"
                         elif time_display:
                             line += f" | {time_display}"
                         summary = str(t.get("summary") or "").strip()
@@ -724,6 +729,7 @@ class AIAnalyzer:
             evidence[url] = {
                 "published_at": published_at,
                 "category": category,
+                "event_id": (re.search(r"\|\s*事件ID:([^|]+)", line).group(1).strip() if re.search(r"\|\s*事件ID:([^|]+)", line) else url),
             }
         return evidence
 
@@ -743,6 +749,7 @@ class AIAnalyzer:
         accepted = []
         rejected = 0
         seen_urls = set()
+        seen_events = set()
 
         for index, match in enumerate(matches):
             end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
@@ -765,6 +772,7 @@ class AIAnalyzer:
                 not candidate
                 or candidate.get("category") != category
                 or url in seen_urls
+                or candidate.get("event_id", url) in seen_events
                 or len(accepted) >= 3
             ):
                 rejected += 1
@@ -776,6 +784,7 @@ class AIAnalyzer:
                 continue
 
             seen_urls.add(url)
+            seen_events.add(candidate.get("event_id", url))
             accepted.append(
                 {
                     "title": title,

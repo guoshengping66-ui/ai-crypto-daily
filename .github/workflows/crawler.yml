@@ -3,7 +3,7 @@ name: Get Hot News
 on:
   schedule:
     # 每天北京时间 08:37（UTC 00:37）生成一份 AI + 币圈选题日报。
-    # GitHub Actions 的定时任务可能延迟数分钟。
+    # GitHub Actions 的定时任务可能延迟，内容按实际采集时间向前24小时筛选。
     - cron: "37 0 * * *" # 每天北京时间 08:37 生成选题日报
 
   workflow_dispatch:
@@ -18,10 +18,15 @@ on:
         required: false
         default: ""
         type: string
+      dry_run:
+        description: "检查来源和选题，不发送通知、不调用模型、不更新推送历史"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: crawler-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -79,6 +84,14 @@ jobs:
             exit 1
           fi
 
+      - name: Restore delivered topic history
+        uses: actions/cache/restore@v6
+        with:
+          path: .creator_state/history.json
+          key: creator-history-v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            creator-history-v2-${{ github.ref_name }}-
+
       - name: Run crawler
         if: success()
         env:
@@ -115,7 +128,27 @@ jobs:
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
+          CREATOR_DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
         run: uv run python -m trendradar
+
+      - name: Save delivered topic history
+        if: ${{ always() && inputs.dry_run != true && hashFiles('.creator_state/history.json') != '' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .creator_state/history.json
+          key: creator-history-v2-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Archive daily topics and selection evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: creator-daily-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/creator_daily/run.json
+            .creator_state/history.json
+          include-hidden-files: true
+          retention-days: 30
+          if-no-files-found: warn
 
       # --------------------------------------------------------------------------------
       # ☁️ CLOUDFLARE PAGES DEPLOY / 部署到 Cloudflare Pages（可选）
@@ -128,7 +161,7 @@ jobs:
       # 配置教程详见 README「自动部署到 Cloudflare Pages」章节。
       # --------------------------------------------------------------------------------
       - name: Check Cloudflare config
-        if: success()
+        if: ${{ success() && inputs.dry_run != true }}
         id: cf_check
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

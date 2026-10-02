@@ -979,6 +979,7 @@ def _send_creator_topics_to_bark(
     crypto_cards: list,
     account_label: str = "",
     batch_interval: float = 1.0,
+    delivered_urls: Optional[list] = None,
 ) -> bool:
     """Send one concise Bark notification per selected hotspot."""
     log_prefix = f"Bark{account_label}" if account_label else "Bark"
@@ -1008,6 +1009,11 @@ def _send_creator_topics_to_bark(
             result = response.json() if response.status_code == 200 else {}
             if response.status_code == 200 and result.get("code") == 200:
                 success_count += 1
+                if delivered_urls is not None:
+                    delivered_urls.extend(
+                        match.rstrip(".,;，。；)")
+                        for match in re.findall(r"https?://[^\s|<>]+", body)
+                    )
                 print(
                     f"{log_prefix}选题推送成功 {category} {item_index}/3"
                     f"（{push_index}/{len(ordered)}）"
@@ -1102,6 +1108,7 @@ def send_to_bark(
             return _send_creator_topics_to_bark(
                 api_endpoint, device_key, proxies, ai_cards, crypto_cards,
                 account_label=account_label, batch_interval=batch_interval,
+                delivered_urls=getattr(ai_analysis, "creator_delivered_urls", None),
             )
 
 

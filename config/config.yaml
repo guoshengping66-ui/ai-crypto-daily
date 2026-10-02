@@ -112,42 +112,139 @@ rss:
     - id: "openai-news"
       name: "OpenAI 官方"
       url: "https://openai.com/news/rss.xml"
+      category: "ai"
+      kind: "official"
+      publisher: "openai"
     - id: "google-ai"
       name: "Google AI 官方"
       url: "https://blog.google/innovation-and-ai/technology/ai/rss/"
+      category: "ai"
+      kind: "official"
+      publisher: "google"
     - id: "deepmind"
       name: "Google DeepMind 官方"
       url: "https://deepmind.google/blog/feed/basic/"
+      category: "ai"
+      kind: "official"
+      publisher: "google"
     - id: "huggingface"
       name: "Hugging Face"
       url: "https://huggingface.co/blog/feed.xml"
+      category: "ai"
+      kind: "official"
+      publisher: "huggingface"
     - id: "nvidia-developer"
       name: "NVIDIA Developer"
       url: "https://developer.nvidia.com/blog/feed/"
+      category: "ai"
+      kind: "official"
+      publisher: "nvidia"
     - id: "arxiv-cs-ai"
       name: "arXiv AI 论文"
       url: "https://rss.arxiv.org/rss/cs.AI"
+      category: "ai"
+      kind: "research"
+      publisher: "arxiv"
     - id: "coindesk"
       name: "CoinDesk"
       url: "https://www.coindesk.com/arc/outboundfeeds/rss/"
+      category: "crypto"
+      publisher: "coindesk"
     - id: "cointelegraph"
       name: "Cointelegraph"
       url: "https://cointelegraph.com/rss"
+      category: "crypto"
+      publisher: "cointelegraph"
     - id: "the-block"
       name: "The Block"
       url: "https://www.theblock.co/rss.xml"
+      category: "crypto"
+      publisher: "theblock"
     - id: "decrypt"
       name: "Decrypt"
       url: "https://decrypt.co/feed"
+      category: "crypto"
+      publisher: "decrypt"
     - id: "blockworks"
       name: "Blockworks"
       url: "https://blockworks.co/feed"
+      category: "crypto"
+      publisher: "blockworks"
     - id: "cryptoslate"
       name: "CryptoSlate"
       url: "https://cryptoslate.com/feed/"
+      category: "crypto"
+      publisher: "cryptoslate"
     - id: "ethereum-blog"
       name: "Ethereum Foundation 官方"
       url: "https://blog.ethereum.org/feed.xml"
+      category: "crypto"
+      kind: "official"
+      publisher: "ethereum"
+
+    - id: "techcrunch-ai"
+      name: "TechCrunch AI"
+      url: "https://techcrunch.com/category/artificial-intelligence/feed/"
+      category: "ai"
+      publisher: "techcrunch"
+    - id: "verge-ai"
+      name: "The Verge AI"
+      url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+      category: "ai"
+      publisher: "theverge"
+    - id: "ars-technica"
+      name: "Ars Technica"
+      url: "https://feeds.arstechnica.com/arstechnica/index"
+      category: "mixed"
+      publisher: "arstechnica"
+    - id: "wired-ai"
+      name: "WIRED AI"
+      url: "https://www.wired.com/feed/tag/ai/latest/rss"
+      category: "ai"
+      publisher: "wired"
+    - id: "the-decoder"
+      name: "The Decoder"
+      url: "https://the-decoder.com/feed/"
+      category: "ai"
+      publisher: "thedecoder"
+    - id: "qbitai"
+      name: "量子位"
+      url: "https://www.qbitai.com/feed"
+      category: "ai"
+      publisher: "qbitai"
+    - id: "bitcoin-magazine"
+      name: "Bitcoin Magazine"
+      url: "https://bitcoinmagazine.com/feed"
+      category: "crypto"
+      publisher: "bitcoinmagazine"
+    - id: "solana-blog"
+      name: "Solana 官方"
+      url: "https://solana.com/news/rss.xml"
+      category: "crypto"
+      kind: "official"
+      publisher: "solana"
+    - id: "panews"
+      name: "PANews 中文"
+      url: "https://www.panewslab.com/rss.xml?lang=zh&type=NEWS,NORMAL"
+      category: "mixed"
+      publisher: "panews"
+      max_items: 100
+    - id: "wublock"
+      name: "吴说区块链"
+      url: "https://wublock.substack.com/feed"
+      category: "crypto"
+      publisher: "wublock"
+    - id: "chaincatcher"
+      name: "ChainCatcher"
+      url: "https://www.chaincatcher.com/rss.xml"
+      category: "mixed"
+      publisher: "chaincatcher"
+      max_items: 100
+    - id: "blocktempo"
+      name: "动区动趋"
+      url: "https://www.blocktempo.com/feed/"
+      category: "mixed"
+      publisher: "blocktempo"
 
     # 自定义源示例
     # - id: "custom-feed"
@@ -177,6 +274,16 @@ report:
   rank_threshold: 5                   # 排名高亮阈值（影响展示强调，不改变抓取范围）
 
   max_news_per_keyword: 0             # 每个关键词/标签最大显示数量（0=不限制，仅影响展示裁剪）
+
+# 每日热点的可核验候选池：每类独立取样，跨来源合并同一事件。
+creator:
+  enabled: true
+  hn_enabled: true                    # 公共HN讨论数据：投票与评论，不等同于X互动
+  pool_per_category: 20               # 每类最多20个合格事件交给模型选择
+  min_score: 24                       # 候选质量门槛；不是浏览量预测
+  history_days: 7                     # 已成功推送的相同事件7天内不重复
+  history_path: ".creator_state/history.json"
+  audit_path: "output/creator_daily/run.json"
 
 
 # ===============================================================
@@ -321,7 +428,7 @@ storage:
   # - auto: 自动选择（GitHub Actions 且配置了远程存储 → remote，否则 → local）
   # - local: 本地 SQLite + TXT/HTML 文件
   # - remote: 远程云存储（S3 兼容协议，支持 R2/OSS/COS 等）
-  backend: "local"                  # 每日单次任务不依赖远程历史存储
+  backend: "local"                  # 新闻本地处理，推送历史由Actions缓存保留
 
   # 数据格式选项
   formats:
@@ -402,7 +509,7 @@ ai:
   temperature: 1.0                  # Xing4.0 官方建议的一般任务采样温度
                                     # 注意：部分模型(如 gpt-5)可能要求必须为 1.0，否则会报错
   
-  max_tokens: 4500                  # 每日十条精简选题及草稿的最大输出量
+  max_tokens: 4500                  # 六条简短热点卡片与JSON的最大输出量
                                     # 注意：如果 API 不支持此参数(报 HTTP 400)，请设为 0 以禁用发送
   # 高级选项
   num_retries: 1                    # 失败重试次数
@@ -434,11 +541,10 @@ ai_analysis:
                                     # follow_report = 跟随 report.mode（默认）
                                     # daily / current / incremental = 强制使用指定模式
 
-  max_news_for_analysis: 60         # 控制模型上下文；创作者日报 RSS 会在各主题分组间轮流取样
-                                    # 热榜优先占用配额，RSS 用剩余配额，独立展示区不受此限制
+  max_news_for_analysis: 60         # AI/Web3各20个事件，加少量热榜线索
 
   include_rss: true                 # AI 与币圈候选主要来自 RSS
-  rss_only_fallback: false          # 使用配置的硅基流动模型生成选题与短帖；免费额度和可用性以平台为准
+  rss_only_fallback: false          # 模型只生成中文热点卡片；失败时使用合格原文摘要
   include_standalone: false         # 不重复纳入独立榜单
 
   include_rank_timeline: false      # 每天只抓一次，无需排名时间线

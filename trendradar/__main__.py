@@ -86,6 +86,8 @@ class NewsAnalyzer:
         self._rss_total_count = 0
         self._rss_matched_count = 0
         self._hotlist_total_count = 0
+        self._creator_selector = None
+        self._creator_feed_failures = []
 
         # 初始化存储管理器（使用 AppContext）
         self._init_storage_manager()
@@ -398,6 +400,17 @@ class NewsAnalyzer:
             if ai_mode != mode and (rss_items or standalone_data):
                 print(f"[AI] 独立分析模式（{ai_mode}）：RSS/独立展示区与推送模式（{mode}）不同源，本次分析仅聚焦热榜")
 
+            creator_config = self.ctx.config.get("CREATOR", {})
+            if creator_config.get("enabled", False) and analyzer._is_creator_daily_prompt():
+                from trendradar.creator import CreatorSelector
+
+                self._creator_selector = CreatorSelector(creator_config, self.ctx.rss_feeds, self.ctx.get_time())
+                ai_rss_stats = self._creator_selector.prepare(ai_rss_stats, ai_stats)
+                self._creator_selector.diagnostics["source_health"] = {
+                    "configured": self._rss_source_total,
+                    "failed_ids": self._creator_feed_failures,
+                }
+
             result = analyzer.analyze(
                 stats=ai_stats,
                 rss_stats=ai_rss_stats,
@@ -407,6 +420,11 @@ class NewsAnalyzer:
                 keywords=keywords,
                 standalone_data=ai_standalone,
             )
+            if self._creator_selector is not None:
+                result = self._creator_selector.complete(result)
+                self._creator_selector.archive(
+                    result, dry_run=os.environ.get("CREATOR_DRY_RUN", "").lower() == "true"
+                )
 
             # 设置 AI 分析使用的模式
             if result.success:
@@ -888,6 +906,9 @@ class NewsAnalyzer:
                 standalone_data=standalone_data,
                 skip_translation=True,
             )
+            if self._creator_selector is not None and ai_result is not None:
+                delivered = ai_result.creator_delivered_urls
+                self._creator_selector.archive(ai_result, results, delivered)
 
             if not results:
                 print("未配置任何通知渠道，跳过通知发送")
@@ -1070,6 +1091,7 @@ class NewsAnalyzer:
 
             self._rss_source_total = len(feeds)
             self._rss_source_failed = len(rss_data.failed_ids)
+            self._creator_feed_failures = list(rss_data.failed_ids)
 
             # 保存到存储后端
             if self.storage_manager.save_rss_data(rss_data):
@@ -1146,6 +1168,19 @@ class NewsAnalyzer:
         # 如果 RSS 展示未启用，跳过关键词分析，只返回原始条目用于独立展示区
         if not rss_display_enabled:
             return None, None, raw_rss_items, rss_new_urls
+
+        creator_config = self.ctx.config.get("CREATOR", {})
+        prompt_file = self.ctx.config.get("AI_ANALYSIS", {}).get("PROMPT_FILE", "")
+        if creator_config.get("enabled", False) and Path(prompt_file).name == "creator_daily_prompt.txt":
+            from trendradar.creator import CreatorSelector
+
+            selector = CreatorSelector(creator_config, self.ctx.rss_feeds, self.ctx.get_time())
+            # Use the declared source scope plus title/summary instead of a
+            # title-only keyword gate. This also preserves the original date.
+            rss_stats = selector.group_raw(raw_rss_items or [])
+            self._rss_total_count = len(raw_rss_items or [])
+            print(f"[RSS] 创作者来源分类：{sum(x['count'] for x in rss_stats)} 条，保留原文时间")
+            return rss_stats, None, raw_rss_items, rss_new_urls
 
         # 2. 获取新增条目（用于统计）
         new_items_dict = self.storage_manager.detect_new_rss_items(rss_data)

@@ -287,7 +287,7 @@ def _load_ai_analysis_config(config_data: Dict) -> Dict:
         "MODE": ai_config.get("mode", "follow_report"),
         "MAX_NEWS_FOR_ANALYSIS": ai_config.get("max_news_for_analysis", 50),
         "INCLUDE_RSS": ai_config.get("include_rss", True),
-        "RSS_ONLY_FALLBACK": ai_config.get("rss_only_fallback", False),
+        "RSS_ONLY_FALLBACK": bool(_get_env_bool("CREATOR_DRY_RUN")) or ai_config.get("rss_only_fallback", False),
         "INCLUDE_RANK_TIMELINE": ai_config.get("include_rank_timeline", False),
         "INCLUDE_STANDALONE": ai_config.get("include_standalone", False),
     }
@@ -598,6 +598,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # AI 分析配置
     config["AI_ANALYSIS"] = _load_ai_analysis_config(config_data)
+    config["CREATOR"] = config_data.get("creator", {})
+    if _get_env_bool("CREATOR_DRY_RUN"):
+        config["ENABLE_NOTIFICATION"] = False
 
     # AI 翻译配置
     config["AI_TRANSLATION"] = _load_ai_translation_config(config_data)

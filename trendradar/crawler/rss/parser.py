@@ -9,7 +9,7 @@ import re
 import html
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from email.utils import parsedate_to_datetime
 
@@ -141,7 +141,8 @@ class RSSParser:
 
         # 发布时间（ISO 8601 格式）
         published_at = None
-        date_str = item_data.get("date_published") or item_data.get("date_modified")
+        # Editing an old article does not establish a new publication date.
+        date_str = item_data.get("date_published")
         if date_str:
             published_at = self._parse_iso_date(date_str)
 
@@ -276,17 +277,18 @@ class RSSParser:
     def _parse_date(self, entry: Any) -> Optional[str]:
         """解析发布日期"""
         # feedparser 会自动解析日期到 published_parsed
-        date_struct = entry.get("published_parsed") or entry.get("updated_parsed")
+        date_struct = entry.get("published_parsed")
 
         if date_struct:
             try:
-                dt = datetime(*date_struct[:6])
+                # feedparser normalizes these tuples to UTC, not the host timezone.
+                dt = datetime(*date_struct[:6], tzinfo=timezone.utc)
                 return dt.isoformat()
             except (ValueError, TypeError):
                 pass
 
         # 尝试手动解析
-        date_str = entry.get("published") or entry.get("updated")
+        date_str = entry.get("published")
         if date_str:
             try:
                 dt = parsedate_to_datetime(date_str)
